@@ -447,14 +447,15 @@ func (r *runtimeSession) processModelPayload(ctx context.Context, payload []byte
 			return nil
 		}
 
-		if strings.EqualFold(state.GenerationStage, "FINAL") && strings.TrimSpace(state.Text) != "" {
+		finalText := normalizeTranscriptText(state.Text)
+		if strings.EqualFold(state.GenerationStage, "FINAL") && finalText != "" {
 			sequenceNo := r.nextTurnSequence()
 			turn := TranscriptTurn{
 				VoiceSessionID:   r.sessionID,
 				SequenceNo:       sequenceNo,
 				Direction:        state.Direction,
 				Modality:         state.Modality,
-				TranscriptText:   state.Text,
+				TranscriptText:   finalText,
 				BedrockSessionID: state.BedrockSessionID,
 				PromptName:       state.PromptName,
 				CompletionID:     state.CompletionID,
@@ -849,6 +850,34 @@ func isInterruptionStopReason(reason string) bool {
 	default:
 		return false
 	}
+}
+
+func normalizeTranscriptText(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+
+	if isInterruptionControlPayload(trimmed) {
+		return ""
+	}
+
+	return trimmed
+}
+
+func isInterruptionControlPayload(raw string) bool {
+	if !strings.HasPrefix(raw, "{") || !strings.HasSuffix(raw, "}") {
+		return false
+	}
+
+	var payload struct {
+		Interrupted bool `json:"interrupted"`
+	}
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		return false
+	}
+
+	return payload.Interrupted
 }
 
 type outputEnvelope struct {

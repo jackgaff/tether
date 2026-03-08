@@ -425,6 +425,23 @@ func TestRuntimeSessionTouchSessionThrottlesWrites(t *testing.T) {
 	}
 }
 
+func TestNormalizeTranscriptText(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]string{
+		"  Hello there.  ":           "Hello there.",
+		"{ \"interrupted\": true }":  "",
+		"{\"interrupted\":false}":    "{\"interrupted\":false}",
+		"   ":                        "",
+	}
+
+	for input, expected := range cases {
+		if actual := normalizeTranscriptText(input); actual != expected {
+			t.Fatalf("normalizeTranscriptText(%q): expected %q, got %q", input, expected, actual)
+		}
+	}
+}
+
 func newTestService(t *testing.T) *Service {
 	t.Helper()
 

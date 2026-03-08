@@ -17,10 +17,31 @@ import type {
 
 type LiveTurn = {
   id: string;
+  sequenceNo?: number;
   direction: "user" | "assistant";
   modality: "audio" | "text";
   text: string;
   occurredAt?: string;
+  stopReason?: string;
+};
+
+type TurnLike = {
+  direction: "user" | "assistant";
+  modality: "audio" | "text";
+  text: string;
+  occurredAt?: string;
+  stopReason?: string;
+};
+
+type ReadableTurnGroup = {
+  id: string;
+  direction: "user" | "assistant";
+  modality: "audio" | "text";
+  startedAt?: string;
+  endedAt?: string;
+  stopReason?: string;
+  text: string;
+  turnCount: number;
 };
 
 type RunState = "idle" | "starting" | "live" | "stopping" | "error";
@@ -50,6 +71,7 @@ export default function App() {
   const nextPlaybackTimeRef = useRef(0);
   const isStoppingRef = useRef(false);
   const expectedCloseRef = useRef(false);
+  const liveGroups = buildReadableTurnGroups(liveTurns);
 
   useEffect(() => {
     void loadBootData();
@@ -203,10 +225,12 @@ export default function App() {
         break;
       case "transcript_final":
         appendLiveTurn({
+          sequenceNo: typeof payload.sequenceNo === "number" ? payload.sequenceNo : undefined,
           direction: payload.direction === "user" ? "user" : "assistant",
           modality: payload.modality === "text" ? "text" : "audio",
           text: typeof payload.text === "string" ? payload.text : "",
-          occurredAt: typeof payload.occurredAt === "string" ? payload.occurredAt : undefined
+          occurredAt: typeof payload.occurredAt === "string" ? payload.occurredAt : undefined,
+          stopReason: typeof payload.stopReason === "string" ? payload.stopReason : undefined
         });
         break;
       case "interrupted":
@@ -350,27 +374,29 @@ export default function App() {
   }
 
   return (
-    <main>
+    <main className="prompt-test">
       <h1>Prompt Test</h1>
-      <p>
+      <p className="intro">
         Pick a voice, paste a starting prompt, press start, and let the assistant open the call.
         Finished runs are saved below.
       </p>
 
-      <p>
-        <strong>API:</strong>{" "}
-        {health ? `${health.service} (${health.env})` : healthError ?? "Unavailable"}
-      </p>
-      <p>
-        <code>{apiBaseUrl}</code>
-      </p>
+      <section className="panel">
+        <h2>API</h2>
+        <p>
+          <strong>Status:</strong>{" "}
+          {health ? `${health.service} (${health.env})` : healthError ?? "Unavailable"}
+        </p>
+        <p>
+          <strong>Base URL:</strong> <code>{apiBaseUrl}</code>
+        </p>
+      </section>
 
-      <section>
+      <section className="panel">
         <h2>New conversation</h2>
 
-        <p>
+        <div className="field">
           <label htmlFor="voice-select">Voice</label>
-          <br />
           <select
             id="voice-select"
             value={selectedVoiceId}
@@ -383,11 +409,10 @@ export default function App() {
               </option>
             ))}
           </select>
-        </p>
+        </div>
 
-        <p>
+        <div className="field">
           <label htmlFor="system-prompt">Starting prompt</label>
-          <br />
           <textarea
             id="system-prompt"
             rows={8}
@@ -396,9 +421,9 @@ export default function App() {
             placeholder="Write the prompt you want to test..."
             disabled={runState === "starting" || runState === "live" || runState === "stopping"}
           />
-        </p>
+        </div>
 
-        <p>
+        <div className="button-row">
           <button
             type="button"
             onClick={() => void handleStart()}
@@ -412,7 +437,6 @@ export default function App() {
           >
             {runState === "starting" ? "Starting..." : "Start call"}
           </button>
-          {" "}
           <button
             type="button"
             onClick={() => void handleStop()}
@@ -420,88 +444,97 @@ export default function App() {
           >
             {runState === "stopping" ? "Stopping..." : "Stop"}
           </button>
-        </p>
+        </div>
 
-        {voicesError ? <p>{voicesError}</p> : null}
-        {errorText ? <p>{errorText}</p> : null}
-        <p>{statusText}</p>
+        {voicesError ? <p className="error-text">{voicesError}</p> : null}
+        {errorText ? <p className="error-text">{errorText}</p> : null}
+        <p className="status-text">{statusText}</p>
       </section>
 
-      <section>
+      <section className="panel">
         <h2>Current conversation</h2>
-        <p>{activeSession ? `${activeSession.voiceId} live` : "No active call"}</p>
+        <p className="section-meta">{activeSession ? `${activeSession.voiceId} live` : "No active call"}</p>
 
         {liveTurns.length === 0 ? (
-          <p>
+          <p className="empty-state">
             {activeSession
               ? "Waiting for the first spoken turn..."
               : "Press start to open a new voice session."}
           </p>
         ) : (
-          <ol>
-            {liveTurns.map((turn) => (
-              <li key={turn.id}>
-                <strong>{turn.direction === "assistant" ? "Assistant" : "You"}</strong>
-                {" · "}
-                {turn.modality}
-                {turn.occurredAt ? (
-                  <>
-                    {" · "}
-                    <time>{formatTime(turn.occurredAt)}</time>
-                  </>
-                ) : null}
-                <div>{turn.text}</div>
-              </li>
-            ))}
-          </ol>
+          <>
+            <div className="transcript-list">
+              {liveGroups.map((group) => (
+                <article key={group.id} className={`transcript-turn ${group.direction}`}>
+                  <header>
+                    <strong>{group.direction === "assistant" ? "Assistant" : "You"}</strong>
+                    <span>{group.modality}</span>
+                    {group.startedAt ? <time>{formatTime(group.startedAt)}</time> : null}
+                  </header>
+                  <p>{group.text}</p>
+                </article>
+              ))}
+            </div>
+
+            <details className="log-details">
+              <summary>Raw turn log</summary>
+              <pre className="log-block">{formatTurnLog(liveTurns)}</pre>
+            </details>
+          </>
         )}
       </section>
 
-      <section>
+      <section className="panel">
         <h2>Previous conversations</h2>
-        <p>{history.length} saved</p>
+        <p className="section-meta">{history.length} saved</p>
 
-        {historyError ? <p>{historyError}</p> : null}
+        {historyError ? <p className="error-text">{historyError}</p> : null}
         {!historyError && history.length === 0 ? (
-          <p>No saved prompt tests yet.</p>
+          <p className="empty-state">No saved prompt tests yet.</p>
         ) : (
-          <div>
+          <div className="history-list">
             {history.map((conversation) => (
-              <details key={conversation.id}>
-                <summary>
-                  <strong>{conversation.voiceId}</strong>
-                  {" · "}
-                  {formatDateTime(conversation.endedAt)}
-                  {" · "}
-                  {conversation.status}
+              <details key={conversation.id} className="history-item">
+                <summary className="history-summary">
+                  <span>
+                    <strong>{conversation.voiceId}</strong>
+                    {" · "}
+                    {formatDateTime(conversation.endedAt)}
+                  </span>
+                  <span>{conversation.status}</span>
                 </summary>
 
                 {conversation.systemPrompt ? (
-                  <>
+                  <section className="history-section">
                     <h3>Prompt</h3>
-                    <pre>{conversation.systemPrompt}</pre>
-                  </>
+                    <pre className="prompt-block">{conversation.systemPrompt}</pre>
+                  </section>
                 ) : null}
 
-                <div>
-                  <h3>Transcript</h3>
+                <section className="history-section">
+                  <h3>Readable transcript</h3>
                   {conversation.turns.length === 0 ? (
-                    <p>No final turns were saved.</p>
+                    <p className="empty-state">No final turns were saved.</p>
                   ) : (
-                    <ol>
-                      {conversation.turns.map((turn) => (
-                        <li key={`${conversation.id}-${turn.sequenceNo}`}>
-                          <strong>{turn.direction === "assistant" ? "Assistant" : "You"}</strong>
-                          {" · "}
-                          {turn.modality}
-                          {" · "}
-                          <time>{formatTime(turn.occurredAt)}</time>
-                          <div>{turn.text}</div>
-                        </li>
+                    <div className="transcript-list">
+                      {buildReadableTurnGroups(conversation.turns).map((group) => (
+                        <article key={`${conversation.id}-${group.id}`} className={`transcript-turn ${group.direction}`}>
+                          <header>
+                            <strong>{group.direction === "assistant" ? "Assistant" : "You"}</strong>
+                            <span>{group.modality}</span>
+                            {group.startedAt ? <time>{formatTime(group.startedAt)}</time> : null}
+                          </header>
+                          <p>{group.text}</p>
+                        </article>
                       ))}
-                    </ol>
+                    </div>
                   )}
-                </div>
+                </section>
+
+                <details className="log-details">
+                  <summary>Raw turn log</summary>
+                  <pre className="log-block">{formatTurnLog(conversation.turns)}</pre>
+                </details>
               </details>
             ))}
           </div>
@@ -520,4 +553,98 @@ function formatTime(value: string): string {
     hour: "numeric",
     minute: "2-digit"
   });
+}
+
+function buildReadableTurnGroups(turns: readonly TurnLike[]): ReadableTurnGroup[] {
+  const groups: ReadableTurnGroup[] = [];
+
+  for (const turn of turns) {
+    const text = normalizeDisplayText(turn.text);
+    if (!text) {
+      continue;
+    }
+
+    const previous = groups[groups.length - 1];
+    if (previous && shouldMergeTurns(previous, turn)) {
+      previous.text = joinTurnText(previous.text, text);
+      previous.endedAt = turn.occurredAt ?? previous.endedAt;
+      previous.stopReason = turn.stopReason ?? previous.stopReason;
+      previous.turnCount += 1;
+      continue;
+    }
+
+    groups.push({
+      id: `${groups.length}-${turn.direction}-${turn.modality}-${turn.occurredAt ?? "unknown"}`,
+      direction: turn.direction,
+      modality: turn.modality,
+      startedAt: turn.occurredAt,
+      endedAt: turn.occurredAt,
+      stopReason: turn.stopReason,
+      text,
+      turnCount: 1
+    });
+  }
+
+  return groups;
+}
+
+function shouldMergeTurns(previous: ReadableTurnGroup, next: TurnLike): boolean {
+  if (previous.direction !== next.direction || previous.modality !== next.modality) {
+    return false;
+  }
+
+  const previousAt = previous.endedAt ? new Date(previous.endedAt).getTime() : Number.NaN;
+  const nextAt = next.occurredAt ? new Date(next.occurredAt).getTime() : Number.NaN;
+  const withinWindow =
+    Number.isFinite(previousAt) && Number.isFinite(nextAt)
+      ? Math.abs(nextAt - previousAt) <= 15000
+      : true;
+
+  if (!withinWindow) {
+    return false;
+  }
+
+  return next.direction === "user" || previous.stopReason === "PARTIAL_TURN" || next.stopReason === "PARTIAL_TURN";
+}
+
+function joinTurnText(previous: string, next: string): string {
+  if (!previous) {
+    return next;
+  }
+
+  if (!next) {
+    return previous;
+  }
+
+  const needsSpace = !/\s$/.test(previous) && !/^\s/.test(next);
+  return `${previous}${needsSpace ? " " : ""}${next}`;
+}
+
+function normalizeDisplayText(text: string): string {
+  return text.trim();
+}
+
+function formatTurnLog(turns: readonly TurnLike[]): string {
+  const lines = turns
+    .map((turn) => {
+      const text = normalizeDisplayText(turn.text);
+      if (!text) {
+        return "";
+      }
+
+      const parts = [
+        turn.occurredAt ? formatDateTime(turn.occurredAt) : "Unknown time",
+        turn.direction === "assistant" ? "assistant" : "user",
+        turn.modality
+      ];
+
+      if (turn.stopReason) {
+        parts.push(turn.stopReason);
+      }
+
+      return `${parts.join(" | ")}\n${text}`;
+    })
+    .filter(Boolean);
+
+  return lines.length > 0 ? lines.join("\n\n") : "No turns captured.";
 }

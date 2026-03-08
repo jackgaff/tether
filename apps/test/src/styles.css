@@ -1,0 +1,165 @@
+body {
+  margin: 0;
+  font-family: sans-serif;
+  line-height: 1.45;
+  color: #111827;
+  background: #f8fafc;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.prompt-test {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.intro {
+  margin-top: 0;
+}
+
+.panel {
+  margin: 0 0 16px;
+  padding: 16px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.panel h2,
+.panel h3 {
+  margin-top: 0;
+}
+
+.field {
+  margin-bottom: 12px;
+}
+
+.field label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.field select,
+.field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  padding: 8px 10px;
+  border: 1px solid #9ca3af;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.field textarea {
+  min-height: 160px;
+  resize: vertical;
+}
+
+.button-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 12px 0;
+}
+
+.button-row button {
+  font: inherit;
+  padding: 8px 12px;
+}
+
+.status-text {
+  margin-bottom: 0;
+}
+
+.error-text {
+  color: #b91c1c;
+}
+
+.section-meta,
+.empty-state {
+  color: #4b5563;
+}
+
+.history-list {
+  display: grid;
+  gap: 12px;
+}
+
+.history-item {
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fcfcfd;
+}
+
+.history-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  cursor: pointer;
+}
+
+.history-section {
+  margin-top: 12px;
+}
+
+.transcript-list {
+  display: grid;
+  gap: 10px;
+}
+
+.transcript-turn {
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #f9fafb;
+}
+
+.transcript-turn.user {
+  background: #eff6ff;
+}
+
+.transcript-turn.assistant {
+  background: #fefce8;
+}
+
+.transcript-turn header {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+  color: #374151;
+  font-size: 0.95rem;
+}
+
+.transcript-turn p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.prompt-block,
+.log-block {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #f9fafb;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92rem;
+}
+
+.log-details {
+  margin-top: 12px;
+}
+
+.log-details summary {
+  cursor: pointer;
+  font-weight: 600;
+}
