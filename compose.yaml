@@ -1,0 +1,78 @@
+name: nova-echoes
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-nova_echoes}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-nova_echoes}"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    environment:
+      APP_NAME: ${APP_NAME:-Nova Echoes}
+      APP_ENV: docker
+      API_PORT: 8080
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:5173}
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-nova_echoes}?sslmode=disable
+      AUTH_MODE: ${AUTH_MODE:-off}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-dev-key-change-me}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      BEDROCK_REGION: ${BEDROCK_REGION:-us-east-1}
+      NOVA_VOICE_MODEL_ID: ${NOVA_VOICE_MODEL_ID:-amazon.nova-2-sonic-v1:0}
+      NOVA_ANALYSIS_MODEL_ID: ${NOVA_ANALYSIS_MODEL_ID:-amazon.nova-2-lite-v1:0}
+    ports:
+      - "8080:8080"
+    volumes:
+      - .:/workspace
+      - go-build-cache:/root/.cache/go-build
+      - go-mod-cache:/go/pkg/mod
+    depends_on:
+      db:
+        condition: service_healthy
+    working_dir: /workspace/apps/api
+    command: ["go", "run", "./cmd/server"]
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    environment:
+      VITE_API_BASE_URL: http://localhost:8080
+      VITE_APP_NAME: ${VITE_APP_NAME:-Nova Echoes}
+    ports:
+      - "5173:5173"
+    volumes:
+      - .:/workspace
+      - bun-node-modules:/workspace/node_modules
+      - bun-cache:/root/.bun/install/cache
+    depends_on:
+      - api
+    working_dir: /workspace
+    command: ["sh", "-lc", "cd apps/web && bun run dev --host 0.0.0.0 --port 5173"]
+
+volumes:
+  postgres-data:
+  go-build-cache:
+  go-mod-cache:
+  bun-node-modules:
+  bun-cache:

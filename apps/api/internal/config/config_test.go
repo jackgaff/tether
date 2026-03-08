@@ -1,0 +1,177 @@
+package config_test
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"nova-echoes/api/internal/config"
+)
+
+var configKeys = []string{
+	"APP_NAME",
+	"APP_ENV",
+	"API_PORT",
+	"FRONTEND_ORIGIN",
+	"DATABASE_URL",
+	"AUTH_MODE",
+	"INTERNAL_API_KEY",
+	"AWS_REGION",
+	"BEDROCK_REGION",
+	"NOVA_VOICE_MODEL_ID",
+	"NOVA_ANALYSIS_MODEL_ID",
+}
+
+func TestLoadFromEnvLocalOverridesEnv(t *testing.T) {
+	resetManagedEnv(t)
+
+	baseDir := t.TempDir()
+	writeFile(t, filepath.Join(baseDir, ".env"), strings.Join([]string{
+		"APP_NAME=FromEnv",
+		"FRONTEND_ORIGIN=http://env.example",
+		"AUTH_MODE=off",
+	}, "\n"))
+	writeFile(t, filepath.Join(baseDir, ".env.local"), strings.Join([]string{
+		"FRONTEND_ORIGIN=http://env-local.example",
+		"API_PORT=9090",
+	}, "\n"))
+
+	cfg, err := config.LoadFrom(baseDir)
+	if err != nil {
+		t.Fatalf("LoadFrom returned error: %v", err)
+	}
+
+	if cfg.AppName != "FromEnv" {
+		t.Fatalf("expected APP_NAME from .env, got %q", cfg.AppName)
+	}
+
+	if cfg.FrontendOrigin != "http://env-local.example" {
+		t.Fatalf("expected .env.local to override FRONTEND_ORIGIN, got %q", cfg.FrontendOrigin)
+	}
+
+	if cfg.Port != "9090" {
+		t.Fatalf("expected API_PORT from .env.local, got %q", cfg.Port)
+	}
+}
+
+func TestLoadFromKeepsShellEnvHighestPriority(t *testing.T) {
+	resetManagedEnv(t)
+
+	baseDir := t.TempDir()
+	writeFile(t, filepath.Join(baseDir, ".env"), "APP_NAME=FromFile\nAUTH_MODE=off\n")
+
+	if err := os.Setenv("APP_NAME", "FromShell"); err != nil {
+		t.Fatalf("Setenv(APP_NAME): %v", err)
+	}
+
+	cfg, err := config.LoadFrom(baseDir)
+	if err != nil {
+		t.Fatalf("LoadFrom returned error: %v", err)
+	}
+
+	if cfg.AppName != "FromShell" {
+		t.Fatalf("expected shell APP_NAME to win, got %q", cfg.AppName)
+	}
+}
+
+func TestLoadFromRejectsMalformedEnvFiles(t *testing.T) {
+	resetManagedEnv(t)
+
+	baseDir := t.TempDir()
+	writeFile(t, filepath.Join(baseDir, ".env"), "AUTH_MODE=off\nthis is not valid\n")
+
+	_, err := config.LoadFrom(baseDir)
+	if err == nil {
+		t.Fatal("expected malformed env file to return an error")
+	}
+
+	if !strings.Contains(err.Error(), "expected KEY=VALUE") {
+		t.Fatalf("expected parse error, got %v", err)
+	}
+}
+
+func TestLoadFromUsesRepoRootAndServiceOverrides(t *testing.T) {
+	resetManagedEnv(t)
+
+	repoRoot := t.TempDir()
+	serviceDir := filepath.Join(repoRoot, "apps", "api")
+	if err := os.MkdirAll(serviceDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	writeFile(t, filepath.Join(repoRoot, "package.json"), "{}\n")
+	writeFile(t, filepath.Join(repoRoot, ".env"), "APP_NAME=RootEnv\nAUTH_MODE=off\nAPI_PORT=8080\n")
+	writeFile(t, filepath.Join(serviceDir, ".env.local"), "API_PORT=8181\n")
+
+	cfg, err := config.LoadFrom(serviceDir)
+	if err != nil {
+		t.Fatalf("LoadFrom returned error: %v", err)
+	}
+
+	if cfg.AppName != "RootEnv" {
+		t.Fatalf("expected root .env to be loaded, got %q", cfg.AppName)
+	}
+
+	if cfg.Port != "8181" {
+		t.Fatalf("expected service override from apps/api/.env.local, got %q", cfg.Port)
+	}
+}
+
+func TestLoadFromRequiresAPIKeyWhenEnabled(t *testing.T) {
+	resetManagedEnv(t)
+
+	baseDir := t.TempDir()
+	writeFile(t, filepath.Join(baseDir, ".env"), "AUTH_MODE=api-key\n")
+
+	_, err := config.LoadFrom(baseDir)
+	if err == nil {
+		t.Fatal("expected missing INTERNAL_API_KEY to return an error")
+	}
+
+	if !strings.Contains(err.Error(), "INTERNAL_API_KEY is required") {
+		t.Fatalf("expected missing api key error, got %v", err)
+	}
+}
+
+func resetManagedEnv(t *testing.T) {
+	t.Helper()
+
+	original := make(map[string]*string, len(configKeys))
+	for _, key := range configKeys {
+		if value, ok := os.LookupEnv(key); ok {
+			value := value
+			original[key] = &value
+		} else {
+			original[key] = nil
+		}
+
+		if err := os.Unsetenv(key); err != nil {
+			t.Fatalf("Unsetenv(%s): %v", key, err)
+		}
+	}
+
+	t.Cleanup(func() {
+		for _, key := range configKeys {
+			value := original[key]
+			var err error
+			if value == nil {
+				err = os.Unsetenv(key)
+			} else {
+				err = os.Setenv(key, *value)
+			}
+
+			if err != nil {
+				t.Fatalf("restore %s: %v", key, err)
+			}
+		}
+	})
+}
+
+func writeFile(t *testing.T, path, contents string) {
+	t.Helper()
+
+	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+		t.Fatalf("WriteFile(%s): %v", path, err)
+	}
+}

@@ -1,0 +1,17 @@
+.DS_Store
+.env
+.env.local
+.cache
+coverage
+dist
+node_modules
+tmp
+*.log
+*.out
+
+# Bun / frontend
+apps/web/node_modules
+apps/web/dist
+
+# Go
+apps/api/bin
