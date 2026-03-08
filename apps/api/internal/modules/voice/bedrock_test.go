@@ -36,14 +36,13 @@ func TestSplitTextInputChunksPreservesUTF8Boundaries(t *testing.T) {
 	}
 }
 
-func TestBuildStartSessionEventsPlacesSystemPromptBeforeAudio(t *testing.T) {
+func TestBuildStartSessionEventsOnlyBootstrapsPromptState(t *testing.T) {
 	t.Parallel()
 
 	events := buildStartSessionEvents(StartLiveSessionInput{
 		PromptName:         "prompt-001",
 		VoiceID:            "matthew",
 		SystemPrompt:       "Hello there.",
-		AudioContentName:   "audio-001",
 		InputSampleRateHz:  16000,
 		OutputSampleRateHz: 24000,
 	}, "system-001")
@@ -59,7 +58,6 @@ func TestBuildStartSessionEventsPlacesSystemPromptBeforeAudio(t *testing.T) {
 		"contentStart",
 		"textInput",
 		"contentEnd",
-		"contentStart",
 	}
 
 	if len(eventNames) != len(expected) {
@@ -72,18 +70,22 @@ func TestBuildStartSessionEventsPlacesSystemPromptBeforeAudio(t *testing.T) {
 		}
 	}
 
-	audioEvent, ok := events[len(events)-1].(map[string]any)
+	systemPromptEvent, ok := events[2].(map[string]any)
 	if !ok {
-		t.Fatalf("expected last event to be a map, got %T", events[len(events)-1])
+		t.Fatalf("expected system prompt event to be a map, got %T", events[2])
 	}
 
-	contentStart, ok := audioEvent["contentStart"].(map[string]any)
+	contentStart, ok := systemPromptEvent["contentStart"].(map[string]any)
 	if !ok {
-		t.Fatalf("expected last event to be contentStart, got %#v", events[len(events)-1])
+		t.Fatalf("expected system prompt event to be contentStart, got %#v", events[2])
 	}
 
-	if contentStart["contentName"] != "audio-001" {
-		t.Fatalf("expected audio content to start last, got %#v", contentStart)
+	if contentStart["contentName"] != "system-001" {
+		t.Fatalf("expected system prompt content to start first, got %#v", contentStart)
+	}
+
+	if interactive, ok := contentStart["interactive"].(bool); !ok || !interactive {
+		t.Fatalf("expected system prompt content to be interactive, got %#v", contentStart["interactive"])
 	}
 }
 

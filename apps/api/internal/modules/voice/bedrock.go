@@ -71,18 +71,12 @@ func (a *BedrockAdapter) StartSession(ctx context.Context, input StartLiveSessio
 		return nil, fmt.Errorf("invoke bidirectional stream: %w", err)
 	}
 
-	select {
-	case <-output.GetInitialReply():
-	case <-ctx.Done():
-		_ = output.GetStream().Close()
-		return nil, ctx.Err()
-	}
-
 	session := &bedrockLiveSession{
 		stream:           output.GetStream(),
 		events:           make(chan LiveSessionEvent, 64),
 		promptName:       input.PromptName,
 		audioContentName: input.AudioContentName,
+		inputSampleRate:  input.InputSampleRateHz,
 	}
 
 	go session.readLoop()
@@ -112,6 +106,8 @@ type bedrockLiveSession struct {
 	events           chan LiveSessionEvent
 	promptName       string
 	audioContentName string
+	inputSampleRate  int
+	audioStarted     bool
 	closeOnce        sync.Once
 	endOnce          sync.Once
 	sendMu           sync.Mutex
@@ -122,13 +118,41 @@ func (s *bedrockLiveSession) SendAudio(ctx context.Context, audio []byte) error 
 		return nil
 	}
 
-	return s.sendEvent(ctx, map[string]any{
+	events := make([]any, 0, 2)
+
+	s.sendMu.Lock()
+	defer s.sendMu.Unlock()
+
+	if !s.audioStarted {
+		s.audioStarted = true
+		events = append(events, map[string]any{
+			"contentStart": map[string]any{
+				"promptName":  s.promptName,
+				"contentName": s.audioContentName,
+				"type":        "AUDIO",
+				"interactive": true,
+				"role":        "USER",
+				"audioInputConfiguration": map[string]any{
+					"mediaType":       "audio/lpcm",
+					"sampleRateHertz": s.inputSampleRate,
+					"sampleSizeBits":  16,
+					"channelCount":    1,
+					"audioType":       "SPEECH",
+					"encoding":        "base64",
+				},
+			},
+		})
+	}
+
+	events = append(events, map[string]any{
 		"audioInput": map[string]any{
 			"promptName":  s.promptName,
 			"contentName": s.audioContentName,
 			"content":     base64.StdEncoding.EncodeToString(audio),
 		},
 	})
+
+	return s.sendEventsLocked(ctx, events)
 }
 
 func (s *bedrockLiveSession) SendText(ctx context.Context, text string) error {
@@ -177,13 +201,21 @@ func (s *bedrockLiveSession) SendText(ctx context.Context, text string) error {
 func (s *bedrockLiveSession) EndConversation(ctx context.Context) error {
 	var sendErr error
 	s.endOnce.Do(func() {
-		for _, event := range []any{
-			map[string]any{
+		s.sendMu.Lock()
+		defer s.sendMu.Unlock()
+
+		events := make([]any, 0, 3)
+
+		if s.audioStarted {
+			events = append(events, map[string]any{
 				"contentEnd": map[string]any{
 					"promptName":  s.promptName,
 					"contentName": s.audioContentName,
 				},
-			},
+			})
+		}
+
+		events = append(events,
 			map[string]any{
 				"promptEnd": map[string]any{
 					"promptName": s.promptName,
@@ -192,10 +224,10 @@ func (s *bedrockLiveSession) EndConversation(ctx context.Context) error {
 			map[string]any{
 				"sessionEnd": map[string]any{},
 			},
-		} {
-			if err := s.sendEvent(ctx, event); err != nil && sendErr == nil {
-				sendErr = err
-			}
+		)
+
+		if err := s.sendEventsLocked(ctx, events); err != nil {
+			sendErr = err
 		}
 	})
 
@@ -230,20 +262,30 @@ func (s *bedrockLiveSession) readLoop() {
 }
 
 func (s *bedrockLiveSession) sendEvent(ctx context.Context, event any) error {
+	return s.sendEvents(ctx, []any{event})
+}
+
+func (s *bedrockLiveSession) sendEvents(ctx context.Context, events []any) error {
 	s.sendMu.Lock()
 	defer s.sendMu.Unlock()
 
-	payload, err := json.Marshal(map[string]any{"event": event})
-	if err != nil {
-		return fmt.Errorf("marshal bedrock event: %w", err)
-	}
+	return s.sendEventsLocked(ctx, events)
+}
 
-	if err := s.stream.Send(ctx, &bedrocktypes.InvokeModelWithBidirectionalStreamInputMemberChunk{
-		Value: bedrocktypes.BidirectionalInputPayloadPart{
-			Bytes: payload,
-		},
-	}); err != nil {
-		return fmt.Errorf("send bedrock event: %w", err)
+func (s *bedrockLiveSession) sendEventsLocked(ctx context.Context, events []any) error {
+	for _, event := range events {
+		payload, err := json.Marshal(map[string]any{"event": event})
+		if err != nil {
+			return fmt.Errorf("marshal bedrock event: %w", err)
+		}
+
+		if err := s.stream.Send(ctx, &bedrocktypes.InvokeModelWithBidirectionalStreamInputMemberChunk{
+			Value: bedrocktypes.BidirectionalInputPayloadPart{
+				Bytes: payload,
+			},
+		}); err != nil {
+			return fmt.Errorf("send bedrock event: %w", err)
+		}
 	}
 
 	return nil
@@ -304,7 +346,7 @@ func buildStartSessionEvents(input StartLiveSessionInput, systemPromptContentNam
 				"promptName":  input.PromptName,
 				"contentName": systemPromptContentName,
 				"type":        "TEXT",
-				"interactive": false,
+				"interactive": true,
 				"role":        "SYSTEM",
 				"textInputConfiguration": map[string]any{
 					"mediaType": "text/plain",
@@ -329,24 +371,6 @@ func buildStartSessionEvents(input StartLiveSessionInput, systemPromptContentNam
 			},
 		})
 	}
-
-	events = append(events, map[string]any{
-		"contentStart": map[string]any{
-			"promptName":  input.PromptName,
-			"contentName": input.AudioContentName,
-			"type":        "AUDIO",
-			"interactive": true,
-			"role":        "USER",
-			"audioInputConfiguration": map[string]any{
-				"mediaType":       "audio/lpcm",
-				"sampleRateHertz": input.InputSampleRateHz,
-				"sampleSizeBits":  16,
-				"channelCount":    1,
-				"audioType":       "SPEECH",
-				"encoding":        "base64",
-			},
-		},
-	})
 
 	return events
 }

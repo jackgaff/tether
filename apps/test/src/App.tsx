@@ -350,28 +350,29 @@ export default function App() {
   }
 
   return (
-    <main className="page">
-      <header className="page-header">
-        <div>
-          <p className="eyebrow">Prompt Test</p>
-          <h1>Simple voice prompt lab</h1>
-          <p className="lede">
-            Pick a voice, paste a starting prompt, press start, and let the assistant open the
-            call. Finished runs are saved and listed below.
-          </p>
-        </div>
+    <main>
+      <h1>Prompt Test</h1>
+      <p>
+        Pick a voice, paste a starting prompt, press start, and let the assistant open the call.
+        Finished runs are saved below.
+      </p>
 
-        <div className="health-card">
-          <strong>{health ? "API OK" : "API issue"}</strong>
-          <span>{health ? `${health.service} · ${health.env}` : healthError ?? "Unavailable"}</span>
-          <code>{apiBaseUrl}</code>
-        </div>
-      </header>
+      <p>
+        <strong>API:</strong>{" "}
+        {health ? `${health.service} (${health.env})` : healthError ?? "Unavailable"}
+      </p>
+      <p>
+        <code>{apiBaseUrl}</code>
+      </p>
 
-      <section className="composer">
-        <label className="field">
-          <span>Voice</span>
+      <section>
+        <h2>New conversation</h2>
+
+        <p>
+          <label htmlFor="voice-select">Voice</label>
+          <br />
           <select
+            id="voice-select"
             value={selectedVoiceId}
             onChange={(event) => setSelectedVoiceId(event.target.value)}
             disabled={runState === "starting" || runState === "live" || runState === "stopping"}
@@ -382,20 +383,22 @@ export default function App() {
               </option>
             ))}
           </select>
-        </label>
+        </p>
 
-        <label className="field">
-          <span>Starting prompt</span>
+        <p>
+          <label htmlFor="system-prompt">Starting prompt</label>
+          <br />
           <textarea
+            id="system-prompt"
             rows={8}
             value={systemPrompt}
             onChange={(event) => setSystemPrompt(event.target.value)}
             placeholder="Write the prompt you want to test..."
             disabled={runState === "starting" || runState === "live" || runState === "stopping"}
           />
-        </label>
+        </p>
 
-        <div className="actions">
+        <p>
           <button
             type="button"
             onClick={() => void handleStart()}
@@ -409,94 +412,94 @@ export default function App() {
           >
             {runState === "starting" ? "Starting..." : "Start call"}
           </button>
+          {" "}
           <button
             type="button"
-            className="secondary"
             onClick={() => void handleStop()}
             disabled={!activeSession || (runState !== "live" && runState !== "stopping")}
           >
             {runState === "stopping" ? "Stopping..." : "Stop"}
           </button>
-        </div>
+        </p>
 
-        {voicesError ? <p className="error-text">{voicesError}</p> : null}
-        {errorText ? <p className="error-text">{errorText}</p> : null}
-        <p className="status-text">{statusText}</p>
+        {voicesError ? <p>{voicesError}</p> : null}
+        {errorText ? <p>{errorText}</p> : null}
+        <p>{statusText}</p>
       </section>
 
-      <section className="panel">
-        <div className="panel-header">
-          <h2>Current conversation</h2>
-          <span>{activeSession ? `${activeSession.voiceId} live` : "No active call"}</span>
-        </div>
+      <section>
+        <h2>Current conversation</h2>
+        <p>{activeSession ? `${activeSession.voiceId} live` : "No active call"}</p>
 
         {liveTurns.length === 0 ? (
-          <p className="empty-state">
+          <p>
             {activeSession
               ? "Waiting for the first spoken turn..."
               : "Press start to open a new voice session."}
           </p>
         ) : (
-          <div className="turn-list">
+          <ol>
             {liveTurns.map((turn) => (
-              <article key={turn.id} className={`turn turn-${turn.direction}`}>
-                <div className="turn-meta">
-                  <strong>{turn.direction === "assistant" ? "Assistant" : "You"}</strong>
-                  <span>{turn.modality}</span>
-                  {turn.occurredAt ? <time>{formatTime(turn.occurredAt)}</time> : null}
-                </div>
-                <p>{turn.text}</p>
-              </article>
+              <li key={turn.id}>
+                <strong>{turn.direction === "assistant" ? "Assistant" : "You"}</strong>
+                {" · "}
+                {turn.modality}
+                {turn.occurredAt ? (
+                  <>
+                    {" · "}
+                    <time>{formatTime(turn.occurredAt)}</time>
+                  </>
+                ) : null}
+                <div>{turn.text}</div>
+              </li>
             ))}
-          </div>
+          </ol>
         )}
       </section>
 
-      <section className="panel">
-        <div className="panel-header">
-          <h2>Previous conversations</h2>
-          <span>{history.length} saved</span>
-        </div>
+      <section>
+        <h2>Previous conversations</h2>
+        <p>{history.length} saved</p>
 
-        {historyError ? <p className="error-text">{historyError}</p> : null}
+        {historyError ? <p>{historyError}</p> : null}
         {!historyError && history.length === 0 ? (
-          <p className="empty-state">No saved prompt tests yet.</p>
+          <p>No saved prompt tests yet.</p>
         ) : (
-          <div className="history-list">
+          <div>
             {history.map((conversation) => (
-              <details key={conversation.id} className="history-item">
+              <details key={conversation.id}>
                 <summary>
-                  <div>
-                    <strong>{conversation.voiceId}</strong>
-                    <span>{formatDateTime(conversation.endedAt)}</span>
-                  </div>
-                  <span>{conversation.status}</span>
+                  <strong>{conversation.voiceId}</strong>
+                  {" · "}
+                  {formatDateTime(conversation.endedAt)}
+                  {" · "}
+                  {conversation.status}
                 </summary>
 
                 {conversation.systemPrompt ? (
-                  <div className="history-block">
+                  <>
                     <h3>Prompt</h3>
                     <pre>{conversation.systemPrompt}</pre>
-                  </div>
+                  </>
                 ) : null}
 
-                <div className="history-block">
+                <div>
                   <h3>Transcript</h3>
                   {conversation.turns.length === 0 ? (
-                    <p className="empty-inline">No final turns were saved.</p>
+                    <p>No final turns were saved.</p>
                   ) : (
-                    <div className="turn-list">
+                    <ol>
                       {conversation.turns.map((turn) => (
-                        <article key={`${conversation.id}-${turn.sequenceNo}`} className={`turn turn-${turn.direction}`}>
-                          <div className="turn-meta">
-                            <strong>{turn.direction === "assistant" ? "Assistant" : "You"}</strong>
-                            <span>{turn.modality}</span>
-                            <time>{formatTime(turn.occurredAt)}</time>
-                          </div>
-                          <p>{turn.text}</p>
-                        </article>
+                        <li key={`${conversation.id}-${turn.sequenceNo}`}>
+                          <strong>{turn.direction === "assistant" ? "Assistant" : "You"}</strong>
+                          {" · "}
+                          {turn.modality}
+                          {" · "}
+                          <time>{formatTime(turn.occurredAt)}</time>
+                          <div>{turn.text}</div>
+                        </li>
                       ))}
-                    </div>
+                    </ol>
                   )}
                 </div>
               </details>

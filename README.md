@@ -7,7 +7,7 @@ The repo is set up to help a small team move quickly without blurring concerns:
 
 - Go API with centralized config loading and small module boundaries
 - Bun-managed React + Vite frontend with typed API contracts
-- Separate Bun-managed prompt lab app for simple voice prompt testing
+- Separate Bun-managed prompt lab app for barebones voice prompt testing
 - Docker Compose stack for Postgres, API, and web
 - One shared root `.env.example`, plus optional `.env.local` overrides
 - Repo-level verification command for local work and CI
@@ -96,8 +96,8 @@ Use this when you want fast iteration with native processes on your machine.
    ```
 
 5. Open `http://localhost:5173` for the main app or `http://localhost:5174` for the prompt lab.
-   The prompt lab is intentionally minimal: pick a voice, paste a starting prompt,
-   press start, talk through the test call, and review saved past conversations.
+   The prompt lab is intentionally barebones: pick a voice, paste a starting prompt,
+   press start, talk through the test call, stop it, and review saved past conversations.
 
 ## Docker Workflow
 
