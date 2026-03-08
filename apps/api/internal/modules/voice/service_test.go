@@ -442,6 +442,18 @@ func TestNormalizeTranscriptText(t *testing.T) {
 	}
 }
 
+func TestIsInterruptionStopReason(t *testing.T) {
+	t.Parallel()
+
+	if !isInterruptionStopReason("INTERRUPTED") {
+		t.Fatal("expected INTERRUPTED to clear playback")
+	}
+
+	if isInterruptionStopReason("PARTIAL_TURN") {
+		t.Fatal("did not expect PARTIAL_TURN to clear playback")
+	}
+}
+
 func newTestService(t *testing.T) *Service {
 	t.Helper()
 

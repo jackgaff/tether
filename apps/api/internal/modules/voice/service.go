@@ -845,7 +845,7 @@ func parseGenerationStage(raw string) string {
 
 func isInterruptionStopReason(reason string) bool {
 	switch strings.ToUpper(reason) {
-	case "INTERRUPTED", "PARTIAL_TURN":
+	case "INTERRUPTED":
 		return true
 	default:
 		return false
