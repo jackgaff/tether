@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"unicode/utf8"
@@ -58,8 +59,13 @@ func NewBedrockAdapter(client bedrockInvoker) *BedrockAdapter {
 }
 
 func (a *BedrockAdapter) StartSession(ctx context.Context, input StartLiveSessionInput) (LiveSession, error) {
+	modelID := normalizeLiveVoiceModelID(input.ModelID)
+	if modelID != input.ModelID {
+		log.Printf("normalizing live voice model id from %q to %q for bidirectional stream", input.ModelID, modelID)
+	}
+
 	output, err := a.client.InvokeModelWithBidirectionalStream(ctx, &bedrockruntime.InvokeModelWithBidirectionalStreamInput{
-		ModelId: aws.String(input.ModelID),
+		ModelId: aws.String(modelID),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("invoke bidirectional stream: %w", err)
@@ -375,4 +381,15 @@ func splitTextInputChunks(text string, maxBytes int) []string {
 
 	chunks = append(chunks, text[start:])
 	return chunks
+}
+
+func normalizeLiveVoiceModelID(modelID string) string {
+	trimmed := strings.TrimSpace(modelID)
+
+	switch trimmed {
+	case "us.amazon.nova-2-sonic-v1:0", "global.amazon.nova-2-sonic-v1:0":
+		return "amazon.nova-2-sonic-v1:0"
+	default:
+		return trimmed
+	}
 }

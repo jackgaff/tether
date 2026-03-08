@@ -87,6 +87,23 @@ func TestBuildStartSessionEventsPlacesSystemPromptBeforeAudio(t *testing.T) {
 	}
 }
 
+func TestNormalizeLiveVoiceModelID(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]string{
+		"us.amazon.nova-2-sonic-v1:0":     "amazon.nova-2-sonic-v1:0",
+		"global.amazon.nova-2-sonic-v1:0": "amazon.nova-2-sonic-v1:0",
+		"amazon.nova-2-sonic-v1:0":        "amazon.nova-2-sonic-v1:0",
+		"amazon.nova-sonic-v1:0":          "amazon.nova-sonic-v1:0",
+	}
+
+	for input, expected := range cases {
+		if actual := normalizeLiveVoiceModelID(input); actual != expected {
+			t.Fatalf("normalizeLiveVoiceModelID(%q): expected %q, got %q", input, expected, actual)
+		}
+	}
+}
+
 func eventName(event any) string {
 	payload, ok := event.(map[string]any)
 	if !ok {
