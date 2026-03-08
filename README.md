@@ -199,6 +199,12 @@ That currently does:
 - prompt lab typecheck
 - prompt lab production build
 
+For the Postgres-backed API integration suite, run:
+
+```bash
+TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5433/nova_echoes?sslmode=disable bun run test:api:integration
+```
+
 CI lives at `.github/workflows/ci.yml` and runs on pushes to `main` plus pull
 requests.
 
@@ -254,8 +260,8 @@ If you set `AUTH_MODE=api-key`, send:
 
 ## Suggested Next Slices
 
-- Replace the in-memory check-in store with Postgres persistence
-- Add scheduler adapters for recurring outbound calls
-- Introduce Bedrock/Nova clients behind injected interfaces
-- Split agent flows into call, analysis, and safety services
+- Add Nova Lite analysis routes and summary persistence on top of completed voice sessions
+- Add microphone capture and device controls to the standalone prompt lab
+- Add Amazon Connect outbound-call orchestration plus EventBridge contact ingestion
+- Layer in scheduling, caregiver workflows, and safety/escalation services
 - Add caregiver-facing summaries and escalation thresholds

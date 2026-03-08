@@ -177,6 +177,14 @@ func (r *voiceRepo) SaveUsageEvent(_ context.Context, _ voice.UsageEvent) error 
 	return nil
 }
 
+func (r *voiceRepo) ListTranscriptTurns(_ context.Context, _ string) ([]voice.TranscriptTurn, error) {
+	return nil, nil
+}
+
+func (r *voiceRepo) ListUsageEvents(_ context.Context, _ string) ([]voice.UsageEvent, error) {
+	return nil, nil
+}
+
 type noopLiveSessionStarter struct{}
 
 func (noopLiveSessionStarter) StartSession(_ context.Context, _ voice.StartLiveSessionInput) (voice.LiveSession, error) {

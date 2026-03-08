@@ -63,6 +63,11 @@ func (s *Service) CreateSession(ctx context.Context, input CreateSessionRequest)
 		return SessionDescriptor{}, ErrPatientIDRequired
 	}
 
+	systemPrompt := strings.TrimSpace(input.SystemPrompt)
+	if len(systemPrompt) > maxSystemPromptBytes {
+		return SessionDescriptor{}, ErrSystemPromptTooLarge
+	}
+
 	voiceID, err := s.resolveVoiceID(ctx, patientID, strings.TrimSpace(input.VoiceID))
 	if err != nil {
 		return SessionDescriptor{}, err
@@ -85,7 +90,7 @@ func (s *Service) CreateSession(ctx context.Context, input CreateSessionRequest)
 		PatientID:              patientID,
 		Status:                 StatusAwaitingStream,
 		VoiceID:                voiceID,
-		SystemPrompt:           strings.TrimSpace(input.SystemPrompt),
+		SystemPrompt:           systemPrompt,
 		InputSampleRateHz:      s.cfg.NovaInputSampleRate,
 		OutputSampleRateHz:     s.cfg.NovaOutputSampleRate,
 		EndpointingSensitivity: s.cfg.NovaEndpointingSensitivity,
@@ -157,8 +162,9 @@ func (s *Service) Attach(ctx context.Context, sessionID, token string, conn *web
 		return err
 	}
 
-	sessionExpiresAt := s.now().Add(maxSessionSeconds * time.Second)
-	if err := s.repo.MarkSessionStreaming(ctx, sessionID, promptName, sessionExpiresAt, s.now()); err != nil {
+	streamStartedAt := s.now()
+	sessionExpiresAt := streamStartedAt.Add(maxSessionSeconds * time.Second)
+	if err := s.repo.MarkSessionStreaming(ctx, sessionID, promptName, sessionExpiresAt, streamStartedAt); err != nil {
 		_ = liveSession.Close()
 		_ = s.repo.MarkSessionEnded(ctx, sessionID, StatusFailed, "", "session_mark_failed", err.Error(), s.now())
 		return err
@@ -174,6 +180,7 @@ func (s *Service) Attach(ctx context.Context, sessionID, token string, conn *web
 		sessionExpiresAt: sessionExpiresAt,
 		contents:         make(map[string]*outputContentState),
 		artifactExporter: s.artifactExporter,
+		lastTouchAt:      streamStartedAt,
 		now:              s.now,
 	}
 
@@ -211,14 +218,13 @@ type runtimeSession struct {
 	sendMu      sync.Mutex
 	sequenceMu  sync.Mutex
 	stateMu     sync.Mutex
-	artifactMu  sync.Mutex
+	activityMu  sync.Mutex
 	closeOnce   sync.Once
 	contents    map[string]*outputContentState
-	transcripts []TranscriptTurn
-	usageEvents []UsageEvent
 	turnSeq     int
 	usageSeq    int
 	lastStop    string
+	lastTouchAt time.Time
 	clientAlive atomic.Bool
 }
 
@@ -292,7 +298,7 @@ func (r *runtimeSession) readClientMessages(ctx context.Context) error {
 			if err := r.live.SendAudio(ctx, payload); err != nil {
 				return err
 			}
-			_ = r.repo.TouchSession(ctx, r.sessionID, r.now())
+			r.touchSession(ctx, r.now())
 		case websocket.TextMessage:
 			var message clientMessage
 			if err := json.Unmarshal(payload, &message); err != nil {
@@ -347,7 +353,7 @@ func (r *runtimeSession) processModelPayload(ctx context.Context, payload []byte
 	}
 
 	now := r.now()
-	_ = r.repo.TouchSession(ctx, r.sessionID, now)
+	r.touchSession(ctx, now)
 
 	switch {
 	case envelope.Event.CompletionStart != nil:
@@ -436,7 +442,6 @@ func (r *runtimeSession) processModelPayload(ctx context.Context, payload []byte
 			if err := r.repo.SaveTranscriptTurn(ctx, turn); err != nil {
 				return err
 			}
-			r.recordTranscript(turn)
 
 			if r.clientAlive.Load() {
 				if err := r.writeJSON(map[string]any{
@@ -496,7 +501,6 @@ func (r *runtimeSession) processModelPayload(ctx context.Context, payload []byte
 		if err := r.repo.SaveUsageEvent(ctx, record); err != nil {
 			return err
 		}
-		r.recordUsage(record)
 
 		if r.clientAlive.Load() {
 			if err := r.writeJSON(map[string]any{
@@ -546,8 +550,6 @@ func (r *runtimeSession) persistClientTextTurn(ctx context.Context, text string)
 	if err := r.repo.SaveTranscriptTurn(ctx, turn); err != nil {
 		return err
 	}
-
-	r.recordTranscript(turn)
 	return nil
 }
 
@@ -607,20 +609,6 @@ func (r *runtimeSession) nextUsageSequence() int {
 	return r.usageSeq
 }
 
-func (r *runtimeSession) recordTranscript(turn TranscriptTurn) {
-	r.artifactMu.Lock()
-	defer r.artifactMu.Unlock()
-
-	r.transcripts = append(r.transcripts, turn)
-}
-
-func (r *runtimeSession) recordUsage(event UsageEvent) {
-	r.artifactMu.Lock()
-	defer r.artifactMu.Unlock()
-
-	r.usageEvents = append(r.usageEvents, event)
-}
-
 func (r *runtimeSession) finalize(ctx context.Context, err error) error {
 	status := StatusCompleted
 	failureCode := ""
@@ -662,13 +650,28 @@ func (r *runtimeSession) finalize(ctx context.Context, err error) error {
 
 	var artifactPaths ArtifactPaths
 	if r.artifactExporter != nil {
+		transcripts, usageEvents, loadErr := r.loadPersistedArtifacts(ctx)
+		if loadErr != nil {
+			if err == nil {
+				err = loadErr
+			}
+			if r.clientAlive.Load() {
+				_ = r.writeJSON(map[string]any{
+					"type":      wsMessageError,
+					"code":      "artifact_load_failed",
+					"message":   loadErr.Error(),
+					"retryable": false,
+				})
+			}
+		}
+
 		exported, exportErr := r.artifactExporter.Export(ctx, SessionArtifact{
 			Session:     r.record,
 			Status:      status,
 			StopReason:  stopReason,
 			EndedAt:     endedAt,
-			Transcripts: r.snapshotTranscripts(),
-			UsageEvents: r.snapshotUsageEvents(),
+			Transcripts: transcripts,
+			UsageEvents: usageEvents,
 		})
 		if exportErr != nil {
 			if r.clientAlive.Load() {
@@ -706,18 +709,30 @@ func (r *runtimeSession) finalize(ctx context.Context, err error) error {
 	return err
 }
 
-func (r *runtimeSession) snapshotTranscripts() []TranscriptTurn {
-	r.artifactMu.Lock()
-	defer r.artifactMu.Unlock()
+func (r *runtimeSession) touchSession(ctx context.Context, now time.Time) {
+	r.activityMu.Lock()
+	if !r.lastTouchAt.IsZero() && now.Sub(r.lastTouchAt) < sessionTouchTTL {
+		r.activityMu.Unlock()
+		return
+	}
+	r.lastTouchAt = now
+	r.activityMu.Unlock()
 
-	return append([]TranscriptTurn(nil), r.transcripts...)
+	_ = r.repo.TouchSession(ctx, r.sessionID, now)
 }
 
-func (r *runtimeSession) snapshotUsageEvents() []UsageEvent {
-	r.artifactMu.Lock()
-	defer r.artifactMu.Unlock()
+func (r *runtimeSession) loadPersistedArtifacts(ctx context.Context) ([]TranscriptTurn, []UsageEvent, error) {
+	transcripts, err := r.repo.ListTranscriptTurns(ctx, r.sessionID)
+	if err != nil {
+		return nil, nil, err
+	}
 
-	return append([]UsageEvent(nil), r.usageEvents...)
+	usageEvents, err := r.repo.ListUsageEvents(ctx, r.sessionID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return transcripts, usageEvents, nil
 }
 
 func (s *Service) resolveVoiceID(ctx context.Context, patientID, requestedVoiceID string) (string, error) {
@@ -780,7 +795,12 @@ func normalizeDirection(role string) string {
 }
 
 func normalizeModality(contentType string) string {
-	return "audio"
+	switch strings.ToUpper(contentType) {
+	case "TEXT":
+		return "text"
+	default:
+		return "audio"
+	}
 }
 
 func parseGenerationStage(raw string) string {

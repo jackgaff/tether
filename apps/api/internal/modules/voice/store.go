@@ -21,6 +21,8 @@ type Repository interface {
 	TouchSession(ctx context.Context, sessionID string, now time.Time) error
 	SaveTranscriptTurn(ctx context.Context, turn TranscriptTurn) error
 	SaveUsageEvent(ctx context.Context, event UsageEvent) error
+	ListTranscriptTurns(ctx context.Context, sessionID string) ([]TranscriptTurn, error)
+	ListUsageEvents(ctx context.Context, sessionID string) ([]UsageEvent, error)
 }
 
 type PostgresRepository struct {
@@ -314,6 +316,124 @@ func (r *PostgresRepository) SaveUsageEvent(ctx context.Context, event UsageEven
 	}
 
 	return nil
+}
+
+func (r *PostgresRepository) ListTranscriptTurns(ctx context.Context, sessionID string) ([]TranscriptTurn, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		select
+			voice_session_id,
+			sequence_no,
+			direction,
+			modality,
+			transcript_text,
+			coalesce(bedrock_session_id, ''),
+			coalesce(prompt_name, ''),
+			coalesce(completion_id, ''),
+			coalesce(content_id, ''),
+			coalesce(generation_stage, ''),
+			coalesce(stop_reason, ''),
+			occurred_at
+		from voice_transcript_turns
+		where voice_session_id = $1
+		order by sequence_no asc
+	`, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("list transcript turns: %w", err)
+	}
+	defer rows.Close()
+
+	turns := make([]TranscriptTurn, 0)
+	for rows.Next() {
+		var turn TranscriptTurn
+		if scanErr := rows.Scan(
+			&turn.VoiceSessionID,
+			&turn.SequenceNo,
+			&turn.Direction,
+			&turn.Modality,
+			&turn.TranscriptText,
+			&turn.BedrockSessionID,
+			&turn.PromptName,
+			&turn.CompletionID,
+			&turn.ContentID,
+			&turn.GenerationStage,
+			&turn.StopReason,
+			&turn.OccurredAt,
+		); scanErr != nil {
+			return nil, fmt.Errorf("scan transcript turn: %w", scanErr)
+		}
+		turns = append(turns, turn)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate transcript turns: %w", err)
+	}
+
+	return turns, nil
+}
+
+func (r *PostgresRepository) ListUsageEvents(ctx context.Context, sessionID string) ([]UsageEvent, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		select
+			voice_session_id,
+			sequence_no,
+			coalesce(bedrock_session_id, ''),
+			coalesce(prompt_name, ''),
+			coalesce(completion_id, ''),
+			input_speech_tokens_delta,
+			input_text_tokens_delta,
+			output_speech_tokens_delta,
+			output_text_tokens_delta,
+			total_input_speech_tokens,
+			total_input_text_tokens,
+			total_output_speech_tokens,
+			total_output_text_tokens,
+			total_input_tokens,
+			total_output_tokens,
+			total_tokens,
+			payload,
+			emitted_at
+		from voice_usage_events
+		where voice_session_id = $1
+		order by sequence_no asc
+	`, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("list usage events: %w", err)
+	}
+	defer rows.Close()
+
+	events := make([]UsageEvent, 0)
+	for rows.Next() {
+		var event UsageEvent
+		if scanErr := rows.Scan(
+			&event.VoiceSessionID,
+			&event.SequenceNo,
+			&event.BedrockSessionID,
+			&event.PromptName,
+			&event.CompletionID,
+			&event.InputSpeechTokensDelta,
+			&event.InputTextTokensDelta,
+			&event.OutputSpeechTokensDelta,
+			&event.OutputTextTokensDelta,
+			&event.TotalInputSpeechTokens,
+			&event.TotalInputTextTokens,
+			&event.TotalOutputSpeechTokens,
+			&event.TotalOutputTextTokens,
+			&event.TotalInputTokens,
+			&event.TotalOutputTokens,
+			&event.TotalTokens,
+			&event.Payload,
+			&event.EmittedAt,
+		); scanErr != nil {
+			return nil, fmt.Errorf("scan usage event: %w", scanErr)
+		}
+		events = append(events, event)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate usage events: %w", err)
+	}
+
+	return events, nil
 }
 
 func nullableString(value string) any {

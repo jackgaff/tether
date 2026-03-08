@@ -27,9 +27,11 @@ const (
 )
 
 const (
-	maxSessionSeconds = 480
-	drainSeconds      = 5
-	streamTokenTTL    = 2 * time.Minute
+	maxSessionSeconds    = 480
+	drainSeconds         = 5
+	streamTokenTTL       = 2 * time.Minute
+	sessionTouchTTL      = time.Second
+	maxSystemPromptBytes = 40 * 1024
 )
 
 type AudioConfig struct {

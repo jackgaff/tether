@@ -150,6 +150,22 @@ func TestPostgresPersistence(t *testing.T) {
 		t.Fatalf("repo.MarkSessionEnded: %v", err)
 	}
 
+	transcriptTurns, err := repo.ListTranscriptTurns(ctx, session.ID)
+	if err != nil {
+		t.Fatalf("repo.ListTranscriptTurns: %v", err)
+	}
+	if len(transcriptTurns) != 1 || transcriptTurns[0].TranscriptText != "Let's take this one step at a time." {
+		t.Fatalf("expected one stored transcript turn, got %+v", transcriptTurns)
+	}
+
+	usageEvents, err := repo.ListUsageEvents(ctx, session.ID)
+	if err != nil {
+		t.Fatalf("repo.ListUsageEvents: %v", err)
+	}
+	if len(usageEvents) != 1 || usageEvents[0].TotalTokens != 14 {
+		t.Fatalf("expected one stored usage event, got %+v", usageEvents)
+	}
+
 	assertCount(t, database, "voice_sessions", 1)
 	assertCount(t, database, "voice_transcript_turns", 1)
 	assertCount(t, database, "voice_usage_events", 1)

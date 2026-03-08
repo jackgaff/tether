@@ -63,7 +63,7 @@ func (h Handler) CreateSession(w http.ResponseWriter, r *http.Request) {
 	session, err := h.service.CreateSession(r.Context(), input)
 	if err != nil {
 		switch {
-		case errors.Is(err, ErrPatientIDRequired), errors.Is(err, ErrVoiceNotAllowed):
+		case errors.Is(err, ErrPatientIDRequired), errors.Is(err, ErrVoiceNotAllowed), errors.Is(err, ErrSystemPromptTooLarge):
 			respond.Error(w, http.StatusBadRequest, "validation_error", err.Error())
 		default:
 			respond.Error(w, http.StatusInternalServerError, "voice_session_error", "Could not create voice session.")

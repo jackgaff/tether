@@ -2,7 +2,7 @@
 
 `GET /api/v1/voice/sessions/{id}/stream?token=...` upgrades to the live browser voice stream.
 
-Create the session first with `POST /api/v1/voice/sessions`. That request can include an optional `systemPrompt` string, which the backend injects into the Nova Sonic session before live audio begins.
+Create the session first with `POST /api/v1/voice/sessions`. That request can include an optional `systemPrompt` string, which the backend injects into the Nova Sonic session before live audio begins. The backend currently rejects prompts larger than `40 KB`.
 
 Rules:
 

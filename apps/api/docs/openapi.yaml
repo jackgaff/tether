@@ -400,6 +400,7 @@ components:
           example: matthew
         systemPrompt:
           type: string
+          maxLength: 40960
           example: >-
             You are a gentle check-in assistant for older adults. Speak slowly,
             ask one question at a time, and confirm important details back to the caller.

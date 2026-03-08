@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -61,6 +62,21 @@ func TestCreateSessionExplicitVoiceOverridesPreference(t *testing.T) {
 	}
 }
 
+func TestCreateSessionRejectsOversizedSystemPrompt(t *testing.T) {
+	t.Parallel()
+
+	service := newTestService(t)
+	oversizedPrompt := strings.Repeat("a", maxSystemPromptBytes+1)
+
+	_, err := service.CreateSession(context.Background(), CreateSessionRequest{
+		PatientID:    "patient-001",
+		SystemPrompt: oversizedPrompt,
+	})
+	if !errors.Is(err, ErrSystemPromptTooLarge) {
+		t.Fatalf("expected ErrSystemPromptTooLarge, got %v", err)
+	}
+}
+
 func TestVoiceHandlerListsVoices(t *testing.T) {
 	t.Parallel()
 
@@ -112,6 +128,23 @@ func TestVoiceHandlerCreateSession(t *testing.T) {
 
 	if payload.Data.StreamToken == "" {
 		t.Fatal("expected stream token")
+	}
+}
+
+func TestVoiceHandlerCreateSessionRejectsOversizedSystemPrompt(t *testing.T) {
+	t.Parallel()
+
+	service := newTestService(t)
+	handler := NewHandler(service, []string{"http://localhost:5173"})
+	body := bytes.NewBufferString(`{"patientId":"patient-001","systemPrompt":"` + strings.Repeat("a", maxSystemPromptBytes+1) + `"}`)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/voice/sessions", body)
+	req.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.CreateSession(recorder, req)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, recorder.Code)
 	}
 }
 
@@ -266,6 +299,37 @@ func TestRuntimeSessionFinalizeKeepsIntentionalCloseCompleted(t *testing.T) {
 	}
 }
 
+func TestRuntimeSessionTouchSessionThrottlesWrites(t *testing.T) {
+	t.Parallel()
+
+	repo := newMemoryRepository()
+	now := time.Now().UTC()
+	repo.sessions["session-003"] = SessionRecord{
+		ID:             "session-003",
+		PatientID:      "patient-001",
+		VoiceID:        "matthew",
+		LastActivityAt: now,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+
+	runtime := &runtimeSession{
+		repo:        repo,
+		sessionID:   "session-003",
+		record:      repo.sessions["session-003"],
+		lastTouchAt: now,
+		now:         func() time.Time { return now },
+	}
+
+	runtime.touchSession(context.Background(), now.Add(200*time.Millisecond))
+	runtime.touchSession(context.Background(), now.Add(500*time.Millisecond))
+	runtime.touchSession(context.Background(), now.Add(1200*time.Millisecond))
+
+	if repo.touchCount != 1 {
+		t.Fatalf("expected 1 persisted touch, got %d", repo.touchCount)
+	}
+}
+
 func newTestService(t *testing.T) *Service {
 	t.Helper()
 
@@ -306,6 +370,7 @@ type memoryRepository struct {
 	sessions    map[string]SessionRecord
 	transcripts []TranscriptTurn
 	usageEvents []UsageEvent
+	touchCount  int
 }
 
 func newMemoryRepository() *memoryRepository {
@@ -409,6 +474,7 @@ func (r *memoryRepository) TouchSession(_ context.Context, sessionID string, now
 	session := r.sessions[sessionID]
 	session.LastActivityAt = now
 	r.sessions[sessionID] = session
+	r.touchCount++
 	return nil
 }
 
@@ -424,6 +490,34 @@ func (r *memoryRepository) SaveUsageEvent(_ context.Context, event UsageEvent) e
 	defer r.mu.Unlock()
 	r.usageEvents = append(r.usageEvents, event)
 	return nil
+}
+
+func (r *memoryRepository) ListTranscriptTurns(_ context.Context, sessionID string) ([]TranscriptTurn, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	turns := make([]TranscriptTurn, 0, len(r.transcripts))
+	for _, turn := range r.transcripts {
+		if turn.VoiceSessionID == sessionID {
+			turns = append(turns, turn)
+		}
+	}
+
+	return turns, nil
+}
+
+func (r *memoryRepository) ListUsageEvents(_ context.Context, sessionID string) ([]UsageEvent, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	events := make([]UsageEvent, 0, len(r.usageEvents))
+	for _, event := range r.usageEvents {
+		if event.VoiceSessionID == sessionID {
+			events = append(events, event)
+		}
+	}
+
+	return events, nil
 }
 
 type fakeLiveSessionStarter struct{}
