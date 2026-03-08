@@ -81,6 +81,77 @@ paths:
           $ref: "#/components/responses/ValidationError"
         "401":
           $ref: "#/components/responses/UnauthorizedError"
+  /api/v1/voice/voices:
+    get:
+      operationId: listVoiceOptions
+      summary: List server-allowed Nova voice options
+      responses:
+        "200":
+          description: Voice options returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoiceListResponse"
+  /api/v1/patients/{id}/preferences:
+    get:
+      operationId: getPatientPreferences
+      summary: Load a patient's setup-time voice preferences
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Patient preference snapshot returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PatientPreferenceResponse"
+    put:
+      operationId: putPatientPreferences
+      summary: Save a patient's setup-time voice preferences
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdatePatientPreferenceRequest"
+      responses:
+        "200":
+          description: Patient preferences saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PatientPreferenceResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+  /api/v1/voice/sessions:
+    post:
+      operationId: createVoiceSession
+      summary: Create a browser voice session placeholder and attach token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateVoiceSessionRequest"
+      responses:
+        "201":
+          description: Voice session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoiceSessionResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
 components:
   securitySchemes:
     ApiKeyAuth:
@@ -224,6 +295,158 @@ components:
       required:
         - data
         - meta
+    Voice:
+      type: object
+      properties:
+        id:
+          type: string
+          example: matthew
+        displayName:
+          type: string
+          example: Matthew
+        locale:
+          type: string
+          example: en-US
+        polyglot:
+          type: boolean
+          example: true
+        isDefault:
+          type: boolean
+          example: true
+        browserSupported:
+          type: boolean
+          example: true
+        connectNativeSupported:
+          type: boolean
+          example: true
+      required:
+        - id
+        - displayName
+        - locale
+        - polyglot
+        - isDefault
+        - browserSupported
+        - connectNativeSupported
+    VoiceListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Voice"
+      required:
+        - data
+    PatientPreference:
+      type: object
+      properties:
+        patientId:
+          type: string
+          example: patient-001
+        defaultVoiceId:
+          type: string
+          example: matthew
+        isConfigured:
+          type: boolean
+          example: true
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - patientId
+        - defaultVoiceId
+        - isConfigured
+    PatientPreferenceResponse:
+      type: object
+      properties:
+        data:
+          $ref: "#/components/schemas/PatientPreference"
+      required:
+        - data
+    UpdatePatientPreferenceRequest:
+      type: object
+      properties:
+        defaultVoiceId:
+          type: string
+          example: tiffany
+      required:
+        - defaultVoiceId
+    AudioConfig:
+      type: object
+      properties:
+        encoding:
+          type: string
+          example: pcm_s16le
+        sampleRateHz:
+          type: integer
+          enum:
+            - 8000
+            - 16000
+            - 24000
+        channels:
+          type: integer
+          example: 1
+      required:
+        - encoding
+        - sampleRateHz
+        - channels
+    CreateVoiceSessionRequest:
+      type: object
+      properties:
+        patientId:
+          type: string
+          example: patient-001
+        voiceId:
+          type: string
+          example: matthew
+        systemPrompt:
+          type: string
+          example: >-
+            You are a gentle check-in assistant for older adults. Speak slowly,
+            ask one question at a time, and confirm important details back to the caller.
+      required:
+        - patientId
+    VoiceSession:
+      type: object
+      properties:
+        id:
+          type: string
+        voiceId:
+          type: string
+        websocketPath:
+          type: string
+          example: /api/v1/voice/sessions/0195f0dc-0f1e-7ca3-a739-f8c6f95e0421/stream
+        streamToken:
+          type: string
+        streamTokenExpiresAt:
+          type: string
+          format: date-time
+        audioInput:
+          $ref: "#/components/schemas/AudioConfig"
+        audioOutput:
+          $ref: "#/components/schemas/AudioConfig"
+        drainSeconds:
+          type: integer
+          example: 5
+        maxSessionSeconds:
+          type: integer
+          example: 480
+      required:
+        - id
+        - voiceId
+        - websocketPath
+        - streamToken
+        - streamTokenExpiresAt
+        - audioInput
+        - audioOutput
+        - drainSeconds
+        - maxSessionSeconds
+    VoiceSessionResponse:
+      type: object
+      properties:
+        data:
+          $ref: "#/components/schemas/VoiceSession"
+      required:
+        - data
     ErrorResponse:
       type: object
       properties:

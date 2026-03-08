@@ -8,20 +8,19 @@ import (
 	"testing"
 
 	"nova-echoes/api/internal/config"
-	"nova-echoes/api/internal/httpserver"
-	"nova-echoes/api/internal/modules/checkins"
+	"nova-echoes/api/internal/testsupport"
 )
 
 func TestHealthRouteReportsConfigurationState(t *testing.T) {
 	t.Parallel()
 
-	handler := httpserver.New(config.Config{
+	handler := testsupport.NewHandler(config.Config{
 		AppName:        "Nova Echoes",
 		AppEnv:         "test",
 		FrontendOrigin: "http://localhost:5173",
 		DatabaseURL:    "postgres://example",
 		AuthMode:       "off",
-	}, checkins.NewMemoryStore())
+	})
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	recorder := httptest.NewRecorder()
@@ -55,12 +54,12 @@ func TestHealthRouteReportsConfigurationState(t *testing.T) {
 func TestOpenAPIRouteIsServed(t *testing.T) {
 	t.Parallel()
 
-	handler := httpserver.New(config.Config{
+	handler := testsupport.NewHandler(config.Config{
 		AppName:        "Nova Echoes",
 		AppEnv:         "test",
 		FrontendOrigin: "http://localhost:5173",
 		AuthMode:       "off",
-	}, checkins.NewMemoryStore())
+	})
 
 	req := httptest.NewRequest(http.MethodGet, "/openapi.yaml", nil)
 	recorder := httptest.NewRecorder()
@@ -79,12 +78,12 @@ func TestOpenAPIRouteIsServed(t *testing.T) {
 func TestCORSPreflightAllowsConfiguredFrontend(t *testing.T) {
 	t.Parallel()
 
-	handler := httpserver.New(config.Config{
+	handler := testsupport.NewHandler(config.Config{
 		AppName:        "Nova Echoes",
 		AppEnv:         "test",
 		FrontendOrigin: "http://localhost:5173",
 		AuthMode:       "off",
-	}, checkins.NewMemoryStore())
+	})
 
 	req := httptest.NewRequest(http.MethodOptions, "/api/v1/check-ins", nil)
 	req.Header.Set("Origin", "http://localhost:5173")

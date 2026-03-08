@@ -3,16 +3,22 @@
   "private": true,
   "packageManager": "bun@1.3.10",
   "workspaces": [
-    "apps/web"
+    "apps/web",
+    "apps/test"
   ],
   "scripts": {
     "dev:web": "cd apps/web && bun run dev",
     "build:web": "cd apps/web && bun run build",
     "typecheck:web": "cd apps/web && bun run check",
     "check:web": "bun run typecheck:web && bun run build:web",
+    "dev:test": "cd apps/test && bun run dev",
+    "build:test": "cd apps/test && bun run build",
+    "typecheck:test": "cd apps/test && bun run check",
+    "check:test": "bun run typecheck:test && bun run build:test",
     "dev:api": "cd apps/api && go run ./cmd/server",
     "test:api": "cd apps/api && GOCACHE=$(pwd)/../../.cache/go-build GOMODCACHE=$(pwd)/../../.cache/go-mod go test ./...",
+    "test:api:integration": "cd apps/api && GOCACHE=$(pwd)/../../.cache/go-build GOMODCACHE=$(pwd)/../../.cache/go-mod go test ./internal/integration/...",
     "check:api": "cd apps/api && GOCACHE=$(pwd)/../../.cache/go-build GOMODCACHE=$(pwd)/../../.cache/go-mod go test -race ./... && GOCACHE=$(pwd)/../../.cache/go-build GOMODCACHE=$(pwd)/../../.cache/go-mod go vet ./...",
-    "check": "bun run check:api && bun run check:web"
+    "check": "bun run check:api && bun run check:web && bun run check:test"
   }
 }

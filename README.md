@@ -7,6 +7,7 @@ The repo is set up to help a small team move quickly without blurring concerns:
 
 - Go API with centralized config loading and small module boundaries
 - Bun-managed React + Vite frontend with typed API contracts
+- Separate Bun-managed prompt lab app for voice-session testing
 - Docker Compose stack for Postgres, API, and web
 - One shared root `.env.example`, plus optional `.env.local` overrides
 - Repo-level verification command for local work and CI
@@ -37,6 +38,8 @@ For the containerized workflow:
 │   │       ├── config
 │   │       ├── httpserver
 │   │       └── modules
+│   ├── test
+│   │   └── src
 │   └── web
 │       └── src
 ├── .env.example
@@ -80,13 +83,19 @@ Use this when you want fast iteration with native processes on your machine.
    bun run dev:api
    ```
 
-3. In another terminal, start the frontend:
+3. In another terminal, start the main frontend:
 
    ```bash
    bun run dev:web
    ```
 
-4. Open `http://localhost:5173`.
+4. If you want the standalone prompt lab instead, start:
+
+   ```bash
+   bun run dev:test
+   ```
+
+5. Open `http://localhost:5173` for the main app or `http://localhost:5174` for the prompt lab.
 
 ## Docker Workflow
 
@@ -102,6 +111,14 @@ That starts:
 - `api` on `http://localhost:8080`
 - `web` on `http://localhost:5173`
 
+If you also want the standalone prompt lab, start it separately:
+
+```bash
+make prompt-test
+```
+
+That serves the prompt lab on `http://localhost:5174`.
+
 Useful commands:
 
 ```bash
@@ -111,6 +128,8 @@ make rebuild
 make logs
 make api-logs
 make web-logs
+make prompt-test
+make prompt-test-logs
 make db-logs
 make down
 make db-reset
@@ -121,6 +140,8 @@ Notes:
 
 - `make up` starts quickly with the current images. Use `make rebuild` after
   Dockerfile or dependency changes.
+- `make prompt-test` starts the standalone prompt lab on `http://localhost:5174`
+  without changing the default `make up` stack.
 - The web container only receives `VITE_*` variables. Backend-only values stay
   scoped to the API service.
 - The Compose web image installs dependencies from `bun.lock` during build, so
@@ -145,6 +166,8 @@ Backend/runtime variables:
 - `BEDROCK_REGION`
 - `NOVA_VOICE_MODEL_ID`
 - `NOVA_ANALYSIS_MODEL_ID`
+- `ALLOWED_FRONTEND_ORIGINS`
+- `VOICE_LAB_EXPORT_DIR`
 
 Frontend variables:
 
@@ -173,6 +196,8 @@ That currently does:
 - `go vet ./...`
 - frontend typecheck
 - frontend production build
+- prompt lab typecheck
+- prompt lab production build
 
 CI lives at `.github/workflows/ci.yml` and runs on pushes to `main` plus pull
 requests.
@@ -184,10 +209,24 @@ Implemented routes:
 - `GET /`
 - `GET /openapi.yaml`
 - `GET /health`
+- `GET /api/v1/voice/voices`
+- `GET /api/v1/patients/{id}/preferences`
+- `PUT /api/v1/patients/{id}/preferences`
+- `POST /api/v1/voice/sessions`
+- `GET /api/v1/voice/sessions/{id}/stream` (WebSocket upgrade)
 - `GET /api/v1/check-ins`
 - `POST /api/v1/check-ins`
 
 OpenAPI source: `apps/api/docs/openapi.yaml`
+Voice WebSocket contract: `apps/api/docs/voice-ws.md`
+
+Voice transcript persistence:
+
+- FINAL transcript turns are stored in Postgres table `voice_transcript_turns`
+- voice session metadata is stored in `voice_sessions`
+- usage events are stored in `voice_usage_events`
+- prompt-lab sessions also export JSON and Markdown artifacts to
+  `VOICE_LAB_EXPORT_DIR` which defaults to `apps/api/testdata/voice-lab`
 
 Example requests:
 

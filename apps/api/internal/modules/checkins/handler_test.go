@@ -8,20 +8,19 @@ import (
 	"testing"
 
 	"nova-echoes/api/internal/config"
-	"nova-echoes/api/internal/httpserver"
-	"nova-echoes/api/internal/modules/checkins"
+	"nova-echoes/api/internal/testsupport"
 )
 
 func TestCreateCheckInSuccess(t *testing.T) {
 	t.Parallel()
 
-	handler := httpserver.New(config.Config{
+	handler := testsupport.NewHandler(config.Config{
 		AppName:        "Nova Echoes",
 		AppEnv:         "test",
 		Port:           "8080",
 		FrontendOrigin: "http://localhost:5173",
 		AuthMode:       "off",
-	}, checkins.NewMemoryStore())
+	})
 
 	body := map[string]any{
 		"patientId": "patient-001",
@@ -50,13 +49,13 @@ func TestCreateCheckInSuccess(t *testing.T) {
 func TestCreateCheckInValidationError(t *testing.T) {
 	t.Parallel()
 
-	handler := httpserver.New(config.Config{
+	handler := testsupport.NewHandler(config.Config{
 		AppName:        "Nova Echoes",
 		AppEnv:         "test",
 		Port:           "8080",
 		FrontendOrigin: "http://localhost:5173",
 		AuthMode:       "off",
-	}, checkins.NewMemoryStore())
+	})
 
 	body := map[string]any{
 		"patientId": "",
@@ -84,14 +83,14 @@ func TestCreateCheckInValidationError(t *testing.T) {
 func TestCreateCheckInRequiresAPIKeyWhenEnabled(t *testing.T) {
 	t.Parallel()
 
-	handler := httpserver.New(config.Config{
+	handler := testsupport.NewHandler(config.Config{
 		AppName:        "Nova Echoes",
 		AppEnv:         "test",
 		Port:           "8080",
 		FrontendOrigin: "http://localhost:5173",
 		AuthMode:       "api-key",
 		InternalAPIKey: "secret-key",
-	}, checkins.NewMemoryStore())
+	})
 
 	body := map[string]any{
 		"patientId": "patient-001",

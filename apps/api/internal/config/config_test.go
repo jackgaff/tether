@@ -14,13 +14,20 @@ var configKeys = []string{
 	"APP_ENV",
 	"API_PORT",
 	"FRONTEND_ORIGIN",
+	"ALLOWED_FRONTEND_ORIGINS",
 	"DATABASE_URL",
+	"VOICE_LAB_EXPORT_DIR",
 	"AUTH_MODE",
 	"INTERNAL_API_KEY",
 	"AWS_REGION",
 	"BEDROCK_REGION",
 	"NOVA_VOICE_MODEL_ID",
 	"NOVA_ANALYSIS_MODEL_ID",
+	"NOVA_DEFAULT_VOICE_ID",
+	"NOVA_ALLOWED_VOICE_IDS",
+	"NOVA_INPUT_SAMPLE_RATE",
+	"NOVA_OUTPUT_SAMPLE_RATE",
+	"NOVA_ENDPOINTING_SENSITIVITY",
 }
 
 func TestLoadFromEnvLocalOverridesEnv(t *testing.T) {
@@ -116,6 +123,35 @@ func TestLoadFromUsesRepoRootAndServiceOverrides(t *testing.T) {
 	if cfg.Port != "8181" {
 		t.Fatalf("expected service override from apps/api/.env.local, got %q", cfg.Port)
 	}
+
+	expectedExportDir := filepath.Join(repoRoot, "apps", "api", "testdata", "voice-lab")
+	if cfg.VoiceLabExportDir != expectedExportDir {
+		t.Fatalf("expected default export dir %q, got %q", expectedExportDir, cfg.VoiceLabExportDir)
+	}
+}
+
+func TestLoadFromIncludesFrontendOriginInAllowedOrigins(t *testing.T) {
+	resetManagedEnv(t)
+
+	baseDir := t.TempDir()
+	writeFile(t, filepath.Join(baseDir, ".env"), strings.Join([]string{
+		"AUTH_MODE=off",
+		"FRONTEND_ORIGIN=http://localhost:5173",
+		"ALLOWED_FRONTEND_ORIGINS=http://localhost:5174",
+	}, "\n"))
+
+	cfg, err := config.LoadFrom(baseDir)
+	if err != nil {
+		t.Fatalf("LoadFrom returned error: %v", err)
+	}
+
+	if !contains(cfg.AllowedFrontendOrigins, "http://localhost:5173") {
+		t.Fatalf("expected FrontendOrigin to be included in allowed origins, got %v", cfg.AllowedFrontendOrigins)
+	}
+
+	if !contains(cfg.AllowedFrontendOrigins, "http://localhost:5174") {
+		t.Fatalf("expected configured allowed origins to be included, got %v", cfg.AllowedFrontendOrigins)
+	}
 }
 
 func TestLoadFromRequiresAPIKeyWhenEnabled(t *testing.T) {
@@ -174,4 +210,14 @@ func writeFile(t *testing.T, path, contents string) {
 	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
 		t.Fatalf("WriteFile(%s): %v", path, err)
 	}
+}
+
+func contains(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+
+	return false
 }

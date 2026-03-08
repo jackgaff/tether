@@ -1,0 +1,24 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: light;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+}
+
+html {
+  min-height: 100%;
+  background:
+    radial-gradient(circle at top left, rgba(251, 191, 36, 0.18), transparent 28%),
+    radial-gradient(circle at top right, rgba(56, 189, 248, 0.18), transparent 24%),
+    linear-gradient(180deg, #f8fafc 0%, #fff7ed 45%, #ecfeff 100%);
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  color: #111827;
+}
+
+#root {
+  min-height: 100vh;
+}
