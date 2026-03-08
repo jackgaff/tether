@@ -7,7 +7,7 @@ The repo is set up to help a small team move quickly without blurring concerns:
 
 - Go API with centralized config loading and small module boundaries
 - Bun-managed React + Vite frontend with typed API contracts
-- Separate Bun-managed prompt lab app for voice-session testing
+- Separate Bun-managed prompt lab app for simple voice prompt testing
 - Docker Compose stack for Postgres, API, and web
 - One shared root `.env.example`, plus optional `.env.local` overrides
 - Repo-level verification command for local work and CI
@@ -96,6 +96,8 @@ Use this when you want fast iteration with native processes on your machine.
    ```
 
 5. Open `http://localhost:5173` for the main app or `http://localhost:5174` for the prompt lab.
+   The prompt lab is intentionally minimal: pick a voice, paste a starting prompt,
+   press start, talk through the test call, and review saved past conversations.
 
 ## Docker Workflow
 
@@ -216,6 +218,7 @@ Implemented routes:
 - `GET /openapi.yaml`
 - `GET /health`
 - `GET /api/v1/voice/voices`
+- `GET /api/v1/voice/lab/conversations`
 - `GET /api/v1/patients/{id}/preferences`
 - `PUT /api/v1/patients/{id}/preferences`
 - `POST /api/v1/voice/sessions`
@@ -233,6 +236,8 @@ Voice transcript persistence:
 - usage events are stored in `voice_usage_events`
 - prompt-lab sessions also export JSON and Markdown artifacts to
   `VOICE_LAB_EXPORT_DIR` which defaults to `apps/api/testdata/voice-lab`
+- `GET /api/v1/voice/lab/conversations` reads those saved JSON artifacts back for the
+  standalone prompt lab history view
 
 Example requests:
 
@@ -261,7 +266,6 @@ If you set `AUTH_MODE=api-key`, send:
 ## Suggested Next Slices
 
 - Add Nova Lite analysis routes and summary persistence on top of completed voice sessions
-- Add microphone capture and device controls to the standalone prompt lab
 - Add Amazon Connect outbound-call orchestration plus EventBridge contact ingestion
 - Layer in scheduling, caregiver workflows, and safety/escalation services
 - Add caregiver-facing summaries and escalation thresholds

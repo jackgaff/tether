@@ -69,6 +69,10 @@ func (c Catalog) IsAllowed(id string) bool {
 	return ok
 }
 
+func KnownIDs() []string {
+	return append([]string(nil), knownVoiceOrder...)
+}
+
 var knownVoices = map[string]Voice{
 	"tiffany":  {ID: "tiffany", DisplayName: "Tiffany", Locale: "en-US", Polyglot: true, BrowserSupported: true, ConnectNativeSupported: false},
 	"matthew":  {ID: "matthew", DisplayName: "Matthew", Locale: "en-US", Polyglot: true, BrowserSupported: true, ConnectNativeSupported: true},
@@ -86,4 +90,23 @@ var knownVoices = map[string]Voice{
 	"carlos":   {ID: "carlos", DisplayName: "Carlos", Locale: "es-US", BrowserSupported: true, ConnectNativeSupported: false},
 	"carolina": {ID: "carolina", DisplayName: "Carolina", Locale: "pt-BR", BrowserSupported: true, ConnectNativeSupported: false},
 	"leo":      {ID: "leo", DisplayName: "Leo", Locale: "pt-BR", BrowserSupported: true, ConnectNativeSupported: false},
+}
+
+var knownVoiceOrder = []string{
+	"tiffany",
+	"matthew",
+	"amy",
+	"olivia",
+	"kiara",
+	"arjun",
+	"ambre",
+	"florian",
+	"beatrice",
+	"lorenzo",
+	"tina",
+	"lennart",
+	"lupe",
+	"carlos",
+	"carolina",
+	"leo",
 }

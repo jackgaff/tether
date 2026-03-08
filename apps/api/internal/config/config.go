@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"nova-echoes/api/internal/modules/voicecatalog"
 )
 
 type Config struct {
@@ -68,7 +70,7 @@ func LoadFrom(baseDir string) (Config, error) {
 		NovaVoiceModelID:    getEnv("NOVA_VOICE_MODEL_ID", "amazon.nova-2-sonic-v1:0"),
 		NovaAnalysisModelID: getEnv("NOVA_ANALYSIS_MODEL_ID", "amazon.nova-2-lite-v1:0"),
 		NovaDefaultVoiceID:  getEnv("NOVA_DEFAULT_VOICE_ID", "matthew"),
-		NovaAllowedVoiceIDs: getEnvList("NOVA_ALLOWED_VOICE_IDS", []string{"matthew", "tiffany"}),
+		NovaAllowedVoiceIDs: getEnvList("NOVA_ALLOWED_VOICE_IDS", voicecatalog.KnownIDs()),
 	}
 
 	cfg.AllowedFrontendOrigins = getEnvList("ALLOWED_FRONTEND_ORIGINS", []string{cfg.FrontendOrigin})

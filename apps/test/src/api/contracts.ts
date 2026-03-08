@@ -2,6 +2,7 @@ export interface ApiEnvelope<T> {
   data?: T;
   meta?: {
     count?: number;
+    limit?: number;
   };
   error?: {
     code: string;
@@ -26,17 +27,6 @@ export interface VoiceOption {
   isDefault: boolean;
   browserSupported: boolean;
   connectNativeSupported: boolean;
-}
-
-export interface PatientPreference {
-  patientId: string;
-  defaultVoiceId: string;
-  isConfigured: boolean;
-  updatedAt?: string;
-}
-
-export interface UpdatePatientPreferenceInput {
-  defaultVoiceId: string;
 }
 
 export interface AudioConfig {
@@ -66,4 +56,26 @@ export interface VoiceSessionDescriptor {
 export interface ArtifactPaths {
   jsonPath?: string;
   markdownPath?: string;
+}
+
+export interface LabConversationTurn {
+  sequenceNo: number;
+  direction: "user" | "assistant";
+  modality: "audio" | "text";
+  text: string;
+  occurredAt: string;
+  stopReason?: string;
+}
+
+export interface LabConversation {
+  id: string;
+  voiceId: string;
+  status: string;
+  systemPrompt?: string;
+  stopReason?: string;
+  createdAt: string;
+  endedAt: string;
+  jsonPath?: string;
+  markdownPath?: string;
+  turns: LabConversationTurn[];
 }

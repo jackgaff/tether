@@ -2,8 +2,7 @@ import type {
   ApiEnvelope,
   CreateVoiceSessionInput,
   HealthSnapshot,
-  PatientPreference,
-  UpdatePatientPreferenceInput,
+  LabConversation,
   VoiceOption,
   VoiceSessionDescriptor
 } from "./contracts";
@@ -41,35 +40,11 @@ export async function fetchVoices(): Promise<VoiceOption[]> {
   return payload.data ?? [];
 }
 
-export async function fetchPatientPreferences(patientId: string): Promise<PatientPreference> {
-  const payload = await request<ApiEnvelope<PatientPreference>>(
-    `/api/v1/patients/${encodeURIComponent(patientId)}/preferences`
+export async function fetchLabConversations(limit = 20): Promise<LabConversation[]> {
+  const payload = await request<ApiEnvelope<LabConversation[]>>(
+    `/api/v1/voice/lab/conversations?limit=${encodeURIComponent(String(limit))}`
   );
-
-  if (!payload.data) {
-    throw new Error("The API returned an empty patient preference response.");
-  }
-
-  return payload.data;
-}
-
-export async function savePatientPreferences(
-  patientId: string,
-  input: UpdatePatientPreferenceInput
-): Promise<PatientPreference> {
-  const payload = await request<ApiEnvelope<PatientPreference>>(
-    `/api/v1/patients/${encodeURIComponent(patientId)}/preferences`,
-    {
-      method: "PUT",
-      body: JSON.stringify(input)
-    }
-  );
-
-  if (!payload.data) {
-    throw new Error("The API returned an empty patient preference response.");
-  }
-
-  return payload.data;
+  return payload.data ?? [];
 }
 
 export async function createVoiceSession(

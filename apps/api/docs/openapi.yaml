@@ -92,6 +92,28 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/VoiceListResponse"
+  /api/v1/voice/lab/conversations:
+    get:
+      operationId: listVoiceLabConversations
+      summary: List saved prompt-lab conversations from local artifact exports
+      parameters:
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: Saved prompt-lab conversations returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoiceLabConversationListResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
   /api/v1/patients/{id}/preferences:
     get:
       operationId: getPatientPreferences
@@ -446,6 +468,84 @@ components:
       properties:
         data:
           $ref: "#/components/schemas/VoiceSession"
+      required:
+        - data
+    VoiceLabConversationTurn:
+      type: object
+      properties:
+        sequenceNo:
+          type: integer
+        direction:
+          type: string
+          enum:
+            - user
+            - assistant
+        modality:
+          type: string
+          enum:
+            - audio
+            - text
+        text:
+          type: string
+        occurredAt:
+          type: string
+          format: date-time
+        stopReason:
+          type: string
+      required:
+        - sequenceNo
+        - direction
+        - modality
+        - text
+        - occurredAt
+    VoiceLabConversation:
+      type: object
+      properties:
+        id:
+          type: string
+        voiceId:
+          type: string
+        status:
+          type: string
+        systemPrompt:
+          type: string
+        stopReason:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        endedAt:
+          type: string
+          format: date-time
+        jsonPath:
+          type: string
+        markdownPath:
+          type: string
+        turns:
+          type: array
+          items:
+            $ref: "#/components/schemas/VoiceLabConversationTurn"
+      required:
+        - id
+        - voiceId
+        - status
+        - createdAt
+        - endedAt
+        - turns
+    VoiceLabConversationListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/VoiceLabConversation"
+        meta:
+          type: object
+          properties:
+            count:
+              type: integer
+            limit:
+              type: integer
       required:
         - data
     ErrorResponse:

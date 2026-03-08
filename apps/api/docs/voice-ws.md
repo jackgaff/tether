@@ -15,6 +15,12 @@ Rules:
 Client to server JSON:
 
 ```json
+{ "type": "start_call" }
+```
+
+Send this once after `session_ready` when you want the assistant to open the call on its own.
+
+```json
 { "type": "text_input", "text": "Can you repeat that more slowly?" }
 ```
 

@@ -42,6 +42,7 @@ func New(cfg config.Config, deps Dependencies) http.Handler {
 	}))
 	mux.Handle("GET /health", health.NewHandler(cfg))
 	mux.Handle("GET /api/v1/voice/voices", http.HandlerFunc(deps.Voice.ListVoices))
+	mux.Handle("GET /api/v1/voice/lab/conversations", http.HandlerFunc(deps.Voice.ListLabConversations))
 	mux.Handle("POST /api/v1/voice/sessions", http.HandlerFunc(deps.Voice.CreateSession))
 	mux.Handle("GET /api/v1/voice/sessions/{id}/stream", http.HandlerFunc(deps.Voice.Stream))
 	mux.Handle("GET /api/v1/patients/{id}/preferences", http.HandlerFunc(deps.Preferences.Get))

@@ -103,6 +103,68 @@ func TestVoiceHandlerListsVoices(t *testing.T) {
 	}
 }
 
+func TestVoiceHandlerListsLabConversations(t *testing.T) {
+	t.Parallel()
+
+	service := newTestService(t)
+	exporter := NewFileArtifactExporter(service.cfg.VoiceLabExportDir)
+	endedAt := time.Now().UTC()
+
+	_, err := exporter.Export(context.Background(), SessionArtifact{
+		Session: SessionRecord{
+			ID:                     "session-history-001",
+			PatientID:              "prompt-lab",
+			VoiceID:                "matthew",
+			SystemPrompt:           "Greet the caller and ask about their morning.",
+			ModelID:                "amazon.nova-2-sonic-v1:0",
+			InputSampleRateHz:      16000,
+			OutputSampleRateHz:     24000,
+			EndpointingSensitivity: "LOW",
+			CreatedAt:              endedAt.Add(-time.Minute),
+		},
+		Status:     StatusCompleted,
+		StopReason: "END_TURN",
+		EndedAt:    endedAt,
+		Transcripts: []TranscriptTurn{
+			{
+				VoiceSessionID: "session-history-001",
+				SequenceNo:     1,
+				Direction:      "assistant",
+				Modality:       "audio",
+				TranscriptText: "Good morning. How are you feeling today?",
+				OccurredAt:     endedAt.Add(-30 * time.Second),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("exporter.Export: %v", err)
+	}
+
+	handler := NewHandler(service, []string{"http://localhost:5173"})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/voice/lab/conversations", nil)
+	recorder := httptest.NewRecorder()
+	handler.ListLabConversations(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+
+	var payload struct {
+		Data []LabConversation `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+
+	if len(payload.Data) != 1 {
+		t.Fatalf("expected 1 conversation, got %d", len(payload.Data))
+	}
+
+	if payload.Data[0].SystemPrompt != "Greet the caller and ask about their morning." {
+		t.Fatalf("unexpected system prompt: %q", payload.Data[0].SystemPrompt)
+	}
+}
+
 func TestVoiceHandlerCreateSession(t *testing.T) {
 	t.Parallel()
 
@@ -296,6 +358,39 @@ func TestRuntimeSessionFinalizeKeepsIntentionalCloseCompleted(t *testing.T) {
 	stored := repo.sessions["session-002"]
 	if stored.Status != StatusCompleted {
 		t.Fatalf("expected completed status, got %q", stored.Status)
+	}
+}
+
+func TestRuntimeSessionStartCallOnlyOnce(t *testing.T) {
+	t.Parallel()
+
+	repo := newMemoryRepository()
+	now := time.Now().UTC()
+	live := &fakeLiveSession{
+		events: make(chan LiveSessionEvent),
+	}
+
+	runtime := &runtimeSession{
+		repo:      repo,
+		live:      live,
+		sessionID: "session-004",
+		now:       func() time.Time { return now },
+	}
+
+	if err := runtime.startCall(context.Background()); err != nil {
+		t.Fatalf("startCall: %v", err)
+	}
+
+	if err := runtime.startCall(context.Background()); err != nil {
+		t.Fatalf("second startCall: %v", err)
+	}
+
+	if len(live.sentTexts) != 1 {
+		t.Fatalf("expected exactly one start text, got %d", len(live.sentTexts))
+	}
+
+	if live.sentTexts[0] != defaultStartCallPrompt {
+		t.Fatalf("unexpected start text: %q", live.sentTexts[0])
 	}
 }
 
@@ -533,15 +628,20 @@ func (fakeLiveSessionStarter) StartSession(_ context.Context, _ StartLiveSession
 }
 
 type fakeLiveSession struct {
-	events chan LiveSessionEvent
-	once   sync.Once
+	mu        sync.Mutex
+	events    chan LiveSessionEvent
+	sentTexts []string
+	once      sync.Once
 }
 
 func (s *fakeLiveSession) SendAudio(_ context.Context, _ []byte) error {
 	return nil
 }
 
-func (s *fakeLiveSession) SendText(_ context.Context, _ string) error {
+func (s *fakeLiveSession) SendText(_ context.Context, text string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sentTexts = append(s.sentTexts, text)
 	return nil
 }
 

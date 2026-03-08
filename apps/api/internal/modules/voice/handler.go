@@ -45,6 +45,25 @@ func (h Handler) ListVoices(w http.ResponseWriter, _ *http.Request) {
 	respond.JSON(w, http.StatusOK, h.service.ListVoices(), nil)
 }
 
+func (h Handler) ListLabConversations(w http.ResponseWriter, r *http.Request) {
+	limit, err := parseConversationLimit(r.URL.Query().Get("limit"))
+	if err != nil {
+		respond.Error(w, http.StatusBadRequest, "validation_error", err.Error())
+		return
+	}
+
+	conversations, err := h.service.ListLabConversations(r.Context(), limit)
+	if err != nil {
+		respond.Error(w, http.StatusInternalServerError, "voice_lab_history_error", "Could not load saved voice lab conversations.")
+		return
+	}
+
+	respond.JSON(w, http.StatusOK, conversations, map[string]int{
+		"count": len(conversations),
+		"limit": limit,
+	})
+}
+
 func (h Handler) CreateSession(w http.ResponseWriter, r *http.Request) {
 	var input CreateSessionRequest
 	decoder := json.NewDecoder(r.Body)

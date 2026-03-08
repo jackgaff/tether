@@ -15,6 +15,7 @@ const (
 )
 
 const (
+	wsMessageStartCall         = "start_call"
 	wsMessageTextInput         = "text_input"
 	wsMessageClientClose       = "client_close"
 	wsMessageSessionReady      = "session_ready"

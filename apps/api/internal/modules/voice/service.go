@@ -25,6 +25,8 @@ var (
 	errClientRequestedClose = errors.New("client requested close")
 )
 
+const defaultStartCallPrompt = "Start the call now. Greet the person warmly, then ask your first short question."
+
 type Service struct {
 	cfg              config.Config
 	voiceCatalog     voicecatalog.Catalog
@@ -220,6 +222,7 @@ type runtimeSession struct {
 	stateMu     sync.Mutex
 	activityMu  sync.Mutex
 	closeOnce   sync.Once
+	startOnce   sync.Once
 	contents    map[string]*outputContentState
 	turnSeq     int
 	usageSeq    int
@@ -247,10 +250,15 @@ func (r *runtimeSession) run(ctx context.Context) error {
 
 	select {
 	case err := <-readErrCh:
-		r.clientAlive.Store(false)
+		isDisconnect := errors.Is(err, errClientDisconnected)
+		if isDisconnect {
+			r.clientAlive.Store(false)
+		}
 		now := r.now()
-		graceUntil := now.Add(drainSeconds * time.Second)
-		_ = r.repo.MarkDisconnectGrace(sessionCtx, r.sessionID, now, graceUntil)
+		if isDisconnect {
+			graceUntil := now.Add(drainSeconds * time.Second)
+			_ = r.repo.MarkDisconnectGrace(sessionCtx, r.sessionID, now, graceUntil)
+		}
 		_ = r.live.EndConversation(sessionCtx)
 
 		timer := time.NewTimer(drainSeconds * time.Second)
@@ -306,6 +314,10 @@ func (r *runtimeSession) readClientMessages(ctx context.Context) error {
 			}
 
 			switch message.Type {
+			case wsMessageStartCall:
+				if err := r.startCall(ctx); err != nil {
+					return err
+				}
 			case wsMessageTextInput:
 				text := strings.TrimSpace(message.Text)
 				if text == "" {
@@ -344,6 +356,18 @@ func (r *runtimeSession) handleModelEvents(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (r *runtimeSession) startCall(ctx context.Context) error {
+	var startErr error
+	r.startOnce.Do(func() {
+		startErr = r.live.SendText(ctx, defaultStartCallPrompt)
+		if startErr == nil {
+			r.touchSession(ctx, r.now())
+		}
+	})
+
+	return startErr
 }
 
 func (r *runtimeSession) processModelPayload(ctx context.Context, payload []byte) error {
