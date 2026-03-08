@@ -20,7 +20,10 @@ func main() {
 		log.Fatalf("load config: %v", err)
 	}
 
-	application := app.New(cfg)
+	application, err := app.New(context.Background(), cfg)
+	if err != nil {
+		log.Fatalf("build app: %v", err)
+	}
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
@@ -44,5 +47,9 @@ func main() {
 
 	if err := server.Shutdown(ctx); err != nil {
 		log.Printf("graceful shutdown failed: %v", err)
+	}
+
+	if err := application.Shutdown(ctx); err != nil {
+		log.Printf("app shutdown failed: %v", err)
 	}
 }

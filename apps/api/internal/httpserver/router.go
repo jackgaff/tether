@@ -10,12 +10,19 @@ import (
 	"nova-echoes/api/internal/httpserver/respond"
 	"nova-echoes/api/internal/modules/checkins"
 	"nova-echoes/api/internal/modules/health"
+	"nova-echoes/api/internal/modules/patients/preferences"
+	"nova-echoes/api/internal/modules/voice"
 )
 
-func New(cfg config.Config, store checkins.Store) http.Handler {
+type Dependencies struct {
+	CheckIns    checkins.Handler
+	Preferences preferences.Handler
+	Voice       voice.Handler
+}
+
+func New(cfg config.Config, deps Dependencies) http.Handler {
 	mux := http.NewServeMux()
 
-	checkInHandler := checkins.NewHandler(store)
 	apiMiddleware := middleware.Chain(
 		middleware.APIKeyAuth(cfg),
 	)
@@ -34,8 +41,14 @@ func New(cfg config.Config, store checkins.Store) http.Handler {
 		http.ServeFile(w, r, openAPIPath)
 	}))
 	mux.Handle("GET /health", health.NewHandler(cfg))
-	mux.Handle("GET /api/v1/check-ins", middleware.Apply(http.HandlerFunc(checkInHandler.List), apiMiddleware...))
-	mux.Handle("POST /api/v1/check-ins", middleware.Apply(http.HandlerFunc(checkInHandler.Create), apiMiddleware...))
+	mux.Handle("GET /api/v1/voice/voices", http.HandlerFunc(deps.Voice.ListVoices))
+	mux.Handle("GET /api/v1/voice/lab/conversations", http.HandlerFunc(deps.Voice.ListLabConversations))
+	mux.Handle("POST /api/v1/voice/sessions", http.HandlerFunc(deps.Voice.CreateSession))
+	mux.Handle("GET /api/v1/voice/sessions/{id}/stream", http.HandlerFunc(deps.Voice.Stream))
+	mux.Handle("GET /api/v1/patients/{id}/preferences", http.HandlerFunc(deps.Preferences.Get))
+	mux.Handle("PUT /api/v1/patients/{id}/preferences", http.HandlerFunc(deps.Preferences.Put))
+	mux.Handle("GET /api/v1/check-ins", middleware.Apply(http.HandlerFunc(deps.CheckIns.List), apiMiddleware...))
+	mux.Handle("POST /api/v1/check-ins", middleware.Apply(http.HandlerFunc(deps.CheckIns.Create), apiMiddleware...))
 
 	return middleware.Apply(
 		mux,

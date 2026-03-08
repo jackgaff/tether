@@ -32,10 +32,17 @@ services:
       APP_ENV: docker
       API_PORT: 8080
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:5173}
+      ALLOWED_FRONTEND_ORIGINS: ${ALLOWED_FRONTEND_ORIGINS:-http://localhost:5173,http://localhost:5174}
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-nova_echoes}?sslmode=disable
+      VOICE_LAB_EXPORT_DIR: ${VOICE_LAB_EXPORT_DIR:-/workspace/apps/api/testdata/voice-lab}
       AUTH_MODE: ${AUTH_MODE:-off}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:-dev-key-change-me}
       AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_PROFILE: ${AWS_PROFILE:-}
+      AWS_DEFAULT_PROFILE: ${AWS_DEFAULT_PROFILE:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
       BEDROCK_REGION: ${BEDROCK_REGION:-us-east-1}
       NOVA_VOICE_MODEL_ID: ${NOVA_VOICE_MODEL_ID:-amazon.nova-2-sonic-v1:0}
       NOVA_ANALYSIS_MODEL_ID: ${NOVA_ANALYSIS_MODEL_ID:-amazon.nova-2-lite-v1:0}
@@ -43,6 +50,7 @@ services:
       - "8080:8080"
     volumes:
       - .:/workspace
+      - ${HOME}/.aws:/root/.aws:ro
       - go-build-cache:/root/.cache/go-build
       - go-mod-cache:/go/pkg/mod
     depends_on:
@@ -69,6 +77,25 @@ services:
       - api
     working_dir: /workspace
     command: ["sh", "-lc", "cd apps/web && bun run dev --host 0.0.0.0 --port 5173"]
+
+  test:
+    build:
+      context: .
+      dockerfile: apps/test/Dockerfile
+    restart: unless-stopped
+    environment:
+      VITE_API_BASE_URL: http://localhost:8080
+      VITE_APP_NAME: ${VITE_APP_NAME:-Nova Echoes Prompt Lab}
+    ports:
+      - "5174:5174"
+    volumes:
+      - .:/workspace
+      - bun-node-modules:/workspace/node_modules
+      - bun-cache:/root/.bun/install/cache
+    depends_on:
+      - api
+    working_dir: /workspace
+    command: ["sh", "-lc", "cd apps/test && bun run dev --host 0.0.0.0 --port 5174"]
 
 volumes:
   postgres-data:

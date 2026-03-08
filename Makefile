@@ -1,7 +1,7 @@
 COMPOSE := docker compose
 .DEFAULT_GOAL := help
 
-.PHONY: help init install check start stop status up down restart rebuild build logs ps db-reset clean api-logs web-logs db-logs
+.PHONY: help init install check start stop status up down restart rebuild build logs ps db-reset clean api-logs web-logs db-logs prompt-test prompt-test-logs
 
 help:
 	@printf "Available targets:\n"
@@ -18,6 +18,8 @@ help:
 	@printf "  make build     Rebuild the api and web images\n"
 	@printf "  make logs      Tail logs for all services\n"
 	@printf "  make ps        Show service status\n"
+	@printf "  make prompt-test      Start the standalone prompt lab service\n"
+	@printf "  make prompt-test-logs Tail logs for the prompt lab service\n"
 	@printf "  make db-reset  Remove Postgres data and restart the full stack\n"
 	@printf "  make clean     Stop the stack and remove all compose volumes\n"
 
@@ -38,7 +40,7 @@ stop: down
 status: ps
 
 up:
-	$(COMPOSE) up -d
+	$(COMPOSE) up -d db api web
 
 down:
 	$(COMPOSE) down
@@ -46,10 +48,10 @@ down:
 restart: down up
 
 rebuild:
-	$(COMPOSE) up -d --build
+	$(COMPOSE) up -d --build db api web
 
 build:
-	$(COMPOSE) build
+	$(COMPOSE) build api web
 
 logs:
 	$(COMPOSE) logs -f
@@ -65,6 +67,12 @@ web-logs:
 
 db-logs:
 	$(COMPOSE) logs -f db
+
+prompt-test:
+	$(COMPOSE) up -d --build test
+
+prompt-test-logs:
+	$(COMPOSE) logs -f test
 
 db-reset:
 	$(COMPOSE) down

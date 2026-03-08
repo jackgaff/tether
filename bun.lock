@@ -5,6 +5,24 @@
     "": {
       "name": "nova-echoes",
     },
+    "apps/test": {
+      "name": "@nova-echoes/test",
+      "version": "0.1.0",
+      "dependencies": {
+        "react": "^18.3.1",
+        "react-dom": "^18.3.1",
+      },
+      "devDependencies": {
+        "@tailwindcss/vite": "^4.1.0",
+        "@types/node": "^22.10.2",
+        "@types/react": "^18.3.12",
+        "@types/react-dom": "^18.3.1",
+        "@vitejs/plugin-react": "^4.3.4",
+        "tailwindcss": "^4.1.0",
+        "typescript": "^5.6.3",
+        "vite": "^5.4.11",
+      },
+    },
     "apps/web": {
       "name": "@nova-echoes/web",
       "version": "0.1.0",
@@ -118,6 +136,8 @@
     "@jridgewell/sourcemap-codec": ["@jridgewell/sourcemap-codec@1.5.5", "", {}, "sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og=="],
 
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
+
+    "@nova-echoes/test": ["@nova-echoes/test@workspace:apps/test"],
 
     "@nova-echoes/web": ["@nova-echoes/web@workspace:apps/web"],
 
