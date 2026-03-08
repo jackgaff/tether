@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"unicode/utf8"
 
@@ -81,98 +82,17 @@ func (a *BedrockAdapter) StartSession(ctx context.Context, input StartLiveSessio
 	go session.readLoop()
 
 	systemPromptContentName := ""
-	initialEvents := []any{
-		map[string]any{
-			"sessionStart": map[string]any{
-				"inferenceConfiguration": map[string]any{
-					"maxTokens":   1024,
-					"topP":        0.9,
-					"temperature": 0.7,
-				},
-				"turnDetectionConfiguration": map[string]any{
-					"endpointingSensitivity": input.EndpointingSensitivity,
-				},
-			},
-		},
-		map[string]any{
-			"promptStart": map[string]any{
-				"promptName": input.PromptName,
-				"textOutputConfiguration": map[string]any{
-					"mediaType": "text/plain",
-				},
-				"audioOutputConfiguration": map[string]any{
-					"mediaType":       "audio/lpcm",
-					"sampleRateHertz": input.OutputSampleRateHz,
-					"sampleSizeBits":  16,
-					"channelCount":    1,
-					"voiceId":         input.VoiceID,
-					"encoding":        "base64",
-					"audioType":       "SPEECH",
-				},
-			},
-		},
-	}
-
-	if systemPrompt := input.SystemPrompt; systemPrompt != "" {
-		systemPromptContentName, err = idgen.New()
-		if err != nil {
+	if strings.TrimSpace(input.SystemPrompt) != "" {
+		var idErr error
+		systemPromptContentName, idErr = idgen.New()
+		if idErr != nil {
 			_ = session.Close()
-			return nil, err
+			return nil, idErr
 		}
-
-		initialEvents = append(initialEvents,
-			map[string]any{
-				"contentStart": map[string]any{
-					"promptName":  input.PromptName,
-					"contentName": systemPromptContentName,
-					"type":        "TEXT",
-					"interactive": false,
-					"role":        "SYSTEM",
-					"textInputConfiguration": map[string]any{
-						"mediaType": "text/plain",
-					},
-				},
-			},
-		)
 	}
 
-	initialEvents = append(initialEvents, map[string]any{
-		"contentStart": map[string]any{
-			"promptName":  input.PromptName,
-			"contentName": input.AudioContentName,
-			"type":        "AUDIO",
-			"interactive": true,
-			"role":        "USER",
-			"audioInputConfiguration": map[string]any{
-				"mediaType":       "audio/lpcm",
-				"sampleRateHertz": input.InputSampleRateHz,
-				"sampleSizeBits":  16,
-				"channelCount":    1,
-				"audioType":       "SPEECH",
-				"encoding":        "base64",
-			},
-		},
-	})
-
-	for _, payload := range initialEvents {
+	for _, payload := range buildStartSessionEvents(input, systemPromptContentName) {
 		if err := session.sendEvent(ctx, payload); err != nil {
-			_ = session.Close()
-			return nil, err
-		}
-	}
-
-	if systemPrompt := input.SystemPrompt; systemPrompt != "" {
-		if err := session.sendTextChunks(ctx, input.PromptName, systemPromptContentName, systemPrompt); err != nil {
-			_ = session.Close()
-			return nil, err
-		}
-
-		if err := session.sendEvent(ctx, map[string]any{
-			"contentEnd": map[string]any{
-				"promptName":  input.PromptName,
-				"contentName": systemPromptContentName,
-			},
-		}); err != nil {
 			_ = session.Close()
 			return nil, err
 		}
@@ -337,6 +257,92 @@ func (s *bedrockLiveSession) sendTextChunks(ctx context.Context, promptName, con
 	}
 
 	return nil
+}
+
+func buildStartSessionEvents(input StartLiveSessionInput, systemPromptContentName string) []any {
+	events := []any{
+		map[string]any{
+			"sessionStart": map[string]any{
+				"inferenceConfiguration": map[string]any{
+					"maxTokens":   1024,
+					"topP":        0.9,
+					"temperature": 0.7,
+				},
+				"turnDetectionConfiguration": map[string]any{
+					"endpointingSensitivity": input.EndpointingSensitivity,
+				},
+			},
+		},
+		map[string]any{
+			"promptStart": map[string]any{
+				"promptName": input.PromptName,
+				"textOutputConfiguration": map[string]any{
+					"mediaType": "text/plain",
+				},
+				"audioOutputConfiguration": map[string]any{
+					"mediaType":       "audio/lpcm",
+					"sampleRateHertz": input.OutputSampleRateHz,
+					"sampleSizeBits":  16,
+					"channelCount":    1,
+					"voiceId":         input.VoiceID,
+					"encoding":        "base64",
+					"audioType":       "SPEECH",
+				},
+			},
+		},
+	}
+
+	if systemPrompt := strings.TrimSpace(input.SystemPrompt); systemPrompt != "" {
+		events = append(events, map[string]any{
+			"contentStart": map[string]any{
+				"promptName":  input.PromptName,
+				"contentName": systemPromptContentName,
+				"type":        "TEXT",
+				"interactive": false,
+				"role":        "SYSTEM",
+				"textInputConfiguration": map[string]any{
+					"mediaType": "text/plain",
+				},
+			},
+		})
+
+		for _, chunk := range splitTextInputChunks(systemPrompt, maxTextInputEventBytes) {
+			events = append(events, map[string]any{
+				"textInput": map[string]any{
+					"promptName":  input.PromptName,
+					"contentName": systemPromptContentName,
+					"content":     chunk,
+				},
+			})
+		}
+
+		events = append(events, map[string]any{
+			"contentEnd": map[string]any{
+				"promptName":  input.PromptName,
+				"contentName": systemPromptContentName,
+			},
+		})
+	}
+
+	events = append(events, map[string]any{
+		"contentStart": map[string]any{
+			"promptName":  input.PromptName,
+			"contentName": input.AudioContentName,
+			"type":        "AUDIO",
+			"interactive": true,
+			"role":        "USER",
+			"audioInputConfiguration": map[string]any{
+				"mediaType":       "audio/lpcm",
+				"sampleRateHertz": input.InputSampleRateHz,
+				"sampleSizeBits":  16,
+				"channelCount":    1,
+				"audioType":       "SPEECH",
+				"encoding":        "base64",
+			},
+		},
+	})
+
+	return events
 }
 
 func splitTextInputChunks(text string, maxBytes int) []string {
