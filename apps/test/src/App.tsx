@@ -156,7 +156,7 @@ export default function App() {
       setStatusText("The live call hit a socket error.");
     };
 
-    socket.onclose = () => {
+    socket.onclose = (event) => {
       socketRef.current = null;
 
       if (expectedCloseRef.current) {
@@ -166,6 +166,7 @@ export default function App() {
 
       setActiveSession(null);
       setRunState("idle");
+      setErrorText(event.reason || "The live socket closed unexpectedly.");
       setStatusText("Call closed.");
     };
 

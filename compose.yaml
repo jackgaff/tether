@@ -38,6 +38,11 @@ services:
       AUTH_MODE: ${AUTH_MODE:-off}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:-dev-key-change-me}
       AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_PROFILE: ${AWS_PROFILE:-}
+      AWS_DEFAULT_PROFILE: ${AWS_DEFAULT_PROFILE:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
       BEDROCK_REGION: ${BEDROCK_REGION:-us-east-1}
       NOVA_VOICE_MODEL_ID: ${NOVA_VOICE_MODEL_ID:-amazon.nova-2-sonic-v1:0}
       NOVA_ANALYSIS_MODEL_ID: ${NOVA_ANALYSIS_MODEL_ID:-amazon.nova-2-lite-v1:0}
@@ -45,6 +50,7 @@ services:
       - "8080:8080"
     volumes:
       - .:/workspace
+      - ${HOME}/.aws:/root/.aws:ro
       - go-build-cache:/root/.cache/go-build
       - go-mod-cache:/go/pkg/mod
     depends_on:

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"slices"
 	"strings"
@@ -117,8 +118,12 @@ func (h Handler) Stream(w http.ResponseWriter, r *http.Request) {
 		if !errors.Is(err, ErrInvalidStreamToken) && !errors.Is(err, ErrTokenExpired) && !errors.Is(err, ErrStreamConsumed) && !errors.Is(err, ErrSessionNotFound) {
 			closeCode = websocket.CloseInternalServerErr
 			message = "voice session failed"
+			if h.service.cfg.AppEnv != "production" {
+				message = err.Error()
+			}
 		}
 
+		log.Printf("voice stream attach failed for session %s: %v", sessionID, err)
 		_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(closeCode, message), time.Now().Add(time.Second))
 		_ = conn.Close()
 	}

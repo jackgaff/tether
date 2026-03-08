@@ -144,6 +144,10 @@ Notes:
   Dockerfile or dependency changes.
 - `make prompt-test` starts the standalone prompt lab on `http://localhost:5174`
   without changing the default `make up` stack.
+- Live Bedrock voice calls from Docker need AWS credentials available to the
+  `api` container. The compose setup now mounts `${HOME}/.aws` read-only and
+  passes through standard `AWS_*` credentials/profile variables from your shell.
+  If you change AWS auth or voice code, restart with `make rebuild`.
 - The web container only receives `VITE_*` variables. Backend-only values stay
   scoped to the API service.
 - The Compose web image installs dependencies from `bun.lock` during build, so
