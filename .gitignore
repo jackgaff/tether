@@ -12,6 +12,11 @@ tmp
 # Bun / frontend
 apps/web/node_modules
 apps/web/dist
+apps/test/node_modules
+apps/test/dist
 
 # Go
 apps/api/bin
+
+# Local artifacts
+output.json

@@ -6,7 +6,10 @@
 node_modules
 apps/web/node_modules
 apps/web/dist
+apps/test/node_modules
+apps/test/dist
+apps/api/testdata/voice-lab
+output.json
 tmp
 coverage
 *.log
-

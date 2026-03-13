@@ -1,17 +1,33 @@
-import type {
-  ApiEnvelope,
-  CheckIn,
-  CreateCheckInInput,
-  HealthSnapshot
-} from "./contracts";
+import type { ApiEnvelope, HealthSnapshot } from "./contracts";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "http://localhost:8080";
 
 export const apiBaseUrl = API_BASE_URL;
 
+export class ApiError extends Error {
+  status: number;
+  code?: string;
+
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
+export function buildVoiceWebSocketUrl(path: string, token: string): string {
+  const base = new URL(API_BASE_URL);
+  base.protocol = base.protocol === "https:" ? "wss:" : "ws:";
+  base.pathname = path;
+  base.search = "";
+  base.searchParams.set("token", token);
+  return base.toString();
+}
+
 export async function fetchHealth(): Promise<HealthSnapshot> {
-  const payload = await request<ApiEnvelope<HealthSnapshot>>("/health");
+  const payload = await requestEnvelope<HealthSnapshot>("/health");
 
   return (
     payload.data ?? {
@@ -25,36 +41,17 @@ export async function fetchHealth(): Promise<HealthSnapshot> {
   );
 }
 
-export async function fetchCheckIns(): Promise<CheckIn[]> {
-  const payload = await request<ApiEnvelope<CheckIn[]>>("/api/v1/check-ins");
-  return payload.data ?? [];
-}
+export async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const payload = await requestEnvelope<T>(path, init);
 
-export async function createDemoCheckIn(): Promise<CheckIn> {
-  return createCheckIn({
-    patientId: "patient-001",
-    summary:
-      "Scheduled voice check-in completed. The caller remembered breakfast, tomorrow's ride, and where the medication card is stored.",
-    status: "completed",
-    agent: "analysis-agent",
-    reminder: "Place tomorrow's appointment card beside the front door."
-  });
-}
-
-export async function createCheckIn(input: CreateCheckInInput): Promise<CheckIn> {
-  const payload = await request<ApiEnvelope<CheckIn>>("/api/v1/check-ins", {
-    method: "POST",
-    body: JSON.stringify(input)
-  });
-
-  if (!payload.data) {
+  if (payload.data === undefined) {
     throw new Error("The API returned an empty response.");
   }
 
   return payload.data;
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function requestEnvelope<T>(path: string, init?: RequestInit): Promise<ApiEnvelope<T>> {
   const headers = new Headers(init?.headers);
 
   if (init?.body && !headers.has("Content-Type")) {
@@ -63,12 +60,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
+    credentials: "include",
     headers
   });
 
   const contentType = response.headers.get("content-type") ?? "";
   const isJson = contentType.includes("application/json");
-  const payload = isJson ? ((await response.json()) as ApiEnvelope<unknown>) : undefined;
+  const payload = isJson ? ((await response.json()) as ApiEnvelope<T>) : undefined;
 
   if (!response.ok) {
     const message =
@@ -76,8 +74,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       (isJson ? JSON.stringify(payload) : await response.text()) ??
       `Request failed with ${response.status}`;
 
-    throw new Error(message);
+    throw new ApiError(message, response.status, payload?.error?.code);
   }
 
-  return (payload as T) ?? ({} as T);
+  return payload ?? {};
 }

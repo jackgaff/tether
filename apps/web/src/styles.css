@@ -1,25 +1,108 @@
-@import "tailwindcss";
-
-:root {
-  color-scheme: light;
-  font-family: "Avenir Next", "Segoe UI", sans-serif;
-}
-
 html {
-  min-height: 100%;
-  background:
-    radial-gradient(circle at top left, rgba(125, 211, 252, 0.2), transparent 32%),
-    radial-gradient(circle at top right, rgba(196, 181, 253, 0.16), transparent 26%),
-    linear-gradient(180deg, #f8fafc 0%, #eff6ff 50%, #eef2ff 100%);
+  font-family: sans-serif;
 }
 
 body {
-  min-height: 100vh;
   margin: 0;
-  color: #0f172a;
 }
 
 #root {
   min-height: 100vh;
 }
 
+* {
+  box-sizing: border-box;
+}
+
+main {
+  padding: 16px;
+}
+
+h1,
+h2,
+p {
+  margin-top: 0;
+}
+
+form,
+label,
+input,
+textarea,
+select,
+button,
+pre {
+  font: inherit;
+}
+
+label {
+  display: block;
+  margin-bottom: 12px;
+}
+
+input,
+textarea,
+select {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 6px;
+}
+
+button {
+  margin-right: 8px;
+  margin-bottom: 8px;
+  padding: 6px 10px;
+}
+
+pre {
+  padding: 12px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #f4f4f4;
+}
+
+ul {
+  padding-left: 20px;
+}
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.section-block {
+  padding: 16px;
+  border: 1px solid #cccccc;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.error-text {
+  color: #b00020;
+}
+
+.transcript-list {
+  display: grid;
+  gap: 8px;
+}
