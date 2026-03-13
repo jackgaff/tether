@@ -72,9 +72,11 @@ export function LiveCallPanel({
     };
 
     socket.onerror = () => {
-      setRunState("error");
-      setErrorText("The browser call socket reported an error.");
-      setStatusText("The browser call hit a socket error.");
+      void enterErrorState(
+        "The browser call socket reported an error.",
+        "The browser call hit a socket error.",
+        true
+      );
     };
 
     socket.onclose = (event) => {
@@ -85,9 +87,11 @@ export function LiveCallPanel({
         return;
       }
 
-      setRunState("error");
-      setErrorText(event.reason || "The browser call socket closed unexpectedly.");
-      setStatusText("The browser call closed unexpectedly.");
+      void enterErrorState(
+        event.reason || "The browser call socket closed unexpectedly.",
+        "The browser call closed unexpectedly.",
+        true
+      );
     };
 
     socketRef.current = socket;
@@ -103,8 +107,11 @@ export function LiveCallPanel({
       try {
         payload = JSON.parse(event.data) as Record<string, unknown>;
       } catch {
-        setRunState("error");
-        setErrorText("The browser call returned invalid JSON.");
+        await enterErrorState(
+          "The browser call returned invalid JSON.",
+          "The browser call returned invalid data.",
+          true
+        );
         return;
       }
 
@@ -128,7 +135,9 @@ export function LiveCallPanel({
       case "session_ready":
         setRunState("live");
         setStatusText("Live. The assistant is starting the call.");
-        await ensureMicrophone(session);
+        if (!(await ensureMicrophone(session))) {
+          return;
+        }
         socketRef.current?.send(JSON.stringify({ type: "start_call" }));
         break;
       case "transcript_final":
@@ -144,13 +153,13 @@ export function LiveCallPanel({
         await closePlayback();
         break;
       case "error":
-        setRunState("error");
-        setErrorText(
+        await enterErrorState(
           typeof payload.message === "string"
             ? payload.message
-            : "The browser call returned an error."
+            : "The browser call returned an error.",
+          "The browser call returned an error.",
+          true
         );
-        setStatusText("The browser call returned an error.");
         break;
       case "session_ended":
         expectedCloseRef.current = true;
@@ -166,14 +175,14 @@ export function LiveCallPanel({
     }
   }
 
-  async function ensureMicrophone(session: VoiceSessionDescriptor) {
+  async function ensureMicrophone(session: VoiceSessionDescriptor): Promise<boolean> {
     if (microphoneRef.current) {
-      return;
+      return true;
     }
 
     const socket = socketRef.current;
     if (!socket) {
-      return;
+      return false;
     }
 
     try {
@@ -181,12 +190,14 @@ export function LiveCallPanel({
         socket,
         session.audioInput.sampleRateHz
       );
+      return true;
     } catch (error) {
-      setRunState("error");
-      setErrorText(
-        error instanceof Error ? error.message : "Unable to start microphone capture."
+      await enterErrorState(
+        error instanceof Error ? error.message : "Unable to start microphone capture.",
+        "Microphone capture failed.",
+        true
       );
-      setStatusText("Microphone capture failed.");
+      return false;
     }
   }
 
@@ -223,6 +234,17 @@ export function LiveCallPanel({
     setRunState("stopping");
     setStatusText("Stopping the browser call...");
     socket.send(JSON.stringify({ type: "client_close" }));
+  }
+
+  async function enterErrorState(message: string, status: string, closeSession: boolean) {
+    if (closeSession) {
+      expectedCloseRef.current = true;
+      await teardownLiveSession();
+    }
+
+    setRunState("error");
+    setErrorText(message);
+    setStatusText(status);
   }
 
   async function teardownLiveSession() {
@@ -309,9 +331,13 @@ export function LiveCallPanel({
       <button
         type="button"
         onClick={() => void handleStop()}
-        disabled={!voiceSession || (runState !== "live" && runState !== "stopping")}
+        disabled={!voiceSession || runState === "idle" || runState === "stopping"}
       >
-        {runState === "stopping" ? "Stopping..." : "Stop browser call"}
+        {runState === "stopping"
+          ? "Stopping..."
+          : runState === "error"
+            ? "Reset browser call"
+            : "Stop browser call"}
       </button>
 
       {turns.length === 0 ? (

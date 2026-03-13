@@ -135,6 +135,11 @@ export default function App() {
   const [nextCallMessage, setNextCallMessage] = useState("No next-call plan loaded.");
   const [nextCallError, setNextCallError] = useState<string | null>(null);
   const [isNextCallBusy, setIsNextCallBusy] = useState(false);
+  const isEditingNextCall = nextCallForm.action === "edit";
+  const canEditNextCallReason =
+    nextCallForm.action === "edit" ||
+    nextCallForm.action === "reject" ||
+    nextCallForm.action === "cancel";
 
   useEffect(() => {
     void loadHealth();
@@ -278,12 +283,31 @@ export default function App() {
     setCallId(nextCallDetail.callRun.id);
     if (nextCallDetail.analysis) {
       setAnalysis(nextCallDetail.analysis);
+      setAnalysisMessage(`Loaded saved analysis for ${nextCallDetail.callRun.id}.`);
+      setAnalysisError(null);
+      return;
     }
+
+    clearAnalysisState("No saved analysis found for this call.");
   }
 
   function applyNextCallPlan(nextPlan: NextCallPlan) {
     setNextCallPlan(nextPlan);
     setNextCallForm(createNextCallForm(nextPlan));
+    setNextCallError(null);
+  }
+
+  function clearAnalysisState(message = "No analysis loaded.") {
+    setAnalysis(null);
+    setAnalysisMessage(message);
+    setAnalysisError(null);
+  }
+
+  function clearNextCallState(message = "No next-call plan loaded.") {
+    setNextCallPlan(null);
+    setNextCallForm(createNextCallForm());
+    setNextCallMessage(message);
+    setNextCallError(null);
   }
 
   async function handleCreateCaregiver(event: FormEvent<HTMLFormElement>) {
@@ -515,9 +539,16 @@ export default function App() {
       applyConsent(nextDashboard.consent);
       if (nextDashboard.latestAnalysis) {
         setAnalysis(nextDashboard.latestAnalysis);
+        setAnalysisMessage(`Loaded latest analysis for patient ${nextDashboard.patient.id}.`);
+        setAnalysisError(null);
+      } else {
+        clearAnalysisState("No analysis is available for this patient yet.");
       }
       if (nextDashboard.activeNextCallPlan) {
         applyNextCallPlan(nextDashboard.activeNextCallPlan);
+        setNextCallMessage(`Loaded next-call plan ${nextDashboard.activeNextCallPlan.id}.`);
+      } else {
+        clearNextCallState("No active next-call plan found for this patient.");
       }
       setDashboardMessage(`Loaded dashboard for patient ${nextDashboard.patient.id}.`);
     } catch (error) {
@@ -555,6 +586,7 @@ export default function App() {
         transcriptTurns: [],
         analysis: undefined
       });
+      clearAnalysisState("No analysis loaded for the new call.");
       setActiveVoiceSession(created.voiceSession ?? null);
       setCallMessage(`Created call run ${created.callRun.id}.`);
     } catch (error) {
@@ -625,9 +657,7 @@ export default function App() {
       setAnalysisMessage(`Loaded saved analysis for ${nextAnalysis.callRunId}.`);
     } catch (error) {
       if (error instanceof ApiError && error.status === 404) {
-        setAnalysis(null);
-        setAnalysisMessage("No saved analysis found yet.");
-        setAnalysisError(null);
+        clearAnalysisState("No saved analysis found yet.");
       } else {
         setAnalysisError(formatError(error));
         setAnalysisMessage("Could not load saved analysis.");
@@ -652,9 +682,7 @@ export default function App() {
       setNextCallMessage(`Loaded next-call plan ${nextPlan.id}.`);
     } catch (error) {
       if (error instanceof ApiError && error.status === 404) {
-        setNextCallPlan(null);
-        setNextCallMessage("No active next-call plan found.");
-        setNextCallError(null);
+        clearNextCallState("No active next-call plan found.");
       } else {
         setNextCallError(formatError(error));
         setNextCallMessage("Could not load the next-call plan.");
@@ -1294,6 +1322,7 @@ export default function App() {
               <input
                 type="text"
                 value={nextCallForm.callTemplateId}
+                disabled={!isEditingNextCall}
                 onChange={(event) =>
                   setNextCallForm((current) => ({
                     ...current,
@@ -1307,6 +1336,7 @@ export default function App() {
               <input
                 type="text"
                 value={nextCallForm.suggestedTimeNote}
+                disabled={!isEditingNextCall}
                 onChange={(event) =>
                   setNextCallForm((current) => ({
                     ...current,
@@ -1320,6 +1350,7 @@ export default function App() {
               <input
                 type="text"
                 value={nextCallForm.plannedFor}
+                disabled={!isEditingNextCall}
                 onChange={(event) =>
                   setNextCallForm((current) => ({
                     ...current,
@@ -1333,6 +1364,7 @@ export default function App() {
               <input
                 type="text"
                 value={nextCallForm.durationMinutes}
+                disabled={!isEditingNextCall}
                 onChange={(event) =>
                   setNextCallForm((current) => ({
                     ...current,
@@ -1347,6 +1379,7 @@ export default function App() {
             <textarea
               rows={2}
               value={nextCallForm.goal}
+              disabled={!isEditingNextCall}
               onChange={(event) =>
                 setNextCallForm((current) => ({
                   ...current,
@@ -1360,6 +1393,7 @@ export default function App() {
             <textarea
               rows={2}
               value={nextCallForm.reason}
+              disabled={!canEditNextCallReason}
               onChange={(event) =>
                 setNextCallForm((current) => ({
                   ...current,
@@ -1368,6 +1402,9 @@ export default function App() {
               }
             />
           </label>
+          {!isEditingNextCall ? (
+            <p>Select the `edit` action to change plan fields.</p>
+          ) : null}
           <button type="submit" disabled={isNextCallBusy}>
             Update next-call plan
           </button>
