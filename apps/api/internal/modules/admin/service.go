@@ -17,15 +17,29 @@ type AnalysisRunner interface {
 	Analyze(ctx context.Context, promptContext AnalysisPromptContext) (AnalysisPayload, error)
 }
 
+type serviceStore interface {
+	GetPatient(ctx context.Context, patientID string) (Patient, bool, error)
+	GetConsentState(ctx context.Context, patientID string) (ConsentState, bool, error)
+	GetCallTemplateByID(ctx context.Context, templateID string) (CallTemplate, bool, error)
+	ResolveActiveCallTemplateByType(ctx context.Context, callType string) (CallTemplate, error)
+	CreateCallRun(ctx context.Context, input CreateCallRunParams) (CallRun, error)
+	MarkCallRunFailed(ctx context.Context, callRunID, stopReason string, endedAt time.Time) error
+	GetActiveNextCallPlan(ctx context.Context, patientID string) (NextCallPlan, bool, error)
+	GetAnalysisRecord(ctx context.Context, callRunID string) (AnalysisRecord, bool, error)
+	GetAnalysisPromptContext(ctx context.Context, callRunID string) (AnalysisPromptContext, error)
+	SaveAnalysisResult(ctx context.Context, input SaveAnalysisResultInput) (AnalysisRecord, error)
+	UpdateNextCallPlan(ctx context.Context, patientID string, input UpdateNextCallPlanStoreInput) (NextCallPlan, error)
+}
+
 type Service struct {
-	store           Store
+	store           serviceStore
 	voiceCreator    VoiceSessionCreator
 	analyzer        AnalysisRunner
 	analysisModelID string
 	now             func() time.Time
 }
 
-func NewService(store Store, voiceCreator VoiceSessionCreator, analyzer AnalysisRunner, analysisModelID string) *Service {
+func NewService(store serviceStore, voiceCreator VoiceSessionCreator, analyzer AnalysisRunner, analysisModelID string) *Service {
 	return &Service{
 		store:           store,
 		voiceCreator:    voiceCreator,
@@ -62,16 +76,16 @@ func (s *Service) CreateCall(ctx context.Context, patientID string, input Create
 	if channel == "" {
 		channel = CallChannelBrowser
 	}
+	if !contains([]string{CallChannelBrowser, CallChannelConnect}, channel) {
+		return CreateCallResponse{}, newValidationError("channel must be browser or connect")
+	}
 
 	triggerType := strings.TrimSpace(input.TriggerType)
 	if triggerType == "" {
 		triggerType = CallTriggerManual
 	}
 
-	var (
-		template     CallTemplate
-		activePlanID string
-	)
+	var template CallTemplate
 
 	switch triggerType {
 	case CallTriggerManual:
@@ -105,7 +119,6 @@ func (s *Service) CreateCall(ctx context.Context, patientID string, input Create
 			return CreateCallResponse{}, ErrApprovedNextCallPlanRequired
 		}
 
-		activePlanID = plan.ID
 		var templateFound bool
 		template, templateFound, err = s.store.GetCallTemplateByID(ctx, plan.CallTemplateID)
 		if err != nil {
@@ -119,13 +132,12 @@ func (s *Service) CreateCall(ctx context.Context, patientID string, input Create
 	}
 
 	callRun, err := s.store.CreateCallRun(ctx, CreateCallRunParams{
-		PatientID:      patient.ID,
-		CaregiverID:    patient.PrimaryCaregiverID,
-		CallTemplate:   template,
-		Channel:        channel,
-		TriggerType:    triggerType,
-		RequestedAt:    s.now(),
-		NextCallPlanID: activePlanID,
+		PatientID:    patient.ID,
+		CaregiverID:  patient.PrimaryCaregiverID,
+		CallTemplate: template,
+		Channel:      channel,
+		TriggerType:  triggerType,
+		RequestedAt:  s.now(),
 	})
 	if err != nil {
 		return CreateCallResponse{}, err
@@ -139,6 +151,7 @@ func (s *Service) CreateCall(ctx context.Context, patientID string, input Create
 			CallRunID:    callRun.ID,
 		})
 		if sessionErr != nil {
+			_ = s.store.MarkCallRunFailed(ctx, callRun.ID, "voice_session_bootstrap_failed", s.now())
 			return CreateCallResponse{}, sessionErr
 		}
 		response.VoiceSession = session
@@ -258,8 +271,8 @@ func validateAnalysisPayload(payload AnalysisPayload) error {
 	if !contains(validCallTypes(), payload.RecommendedNextCall.Type) {
 		return newValidationError("analysis result recommended_next_call.type is invalid")
 	}
-	if payload.RecommendedNextCall.DurationMinutes <= 0 {
-		return newValidationError("analysis result recommended_next_call.duration_minutes must be greater than 0")
+	if payload.RecommendedNextCall.DurationMinutes <= 0 || payload.RecommendedNextCall.DurationMinutes > 30 {
+		return newValidationError("analysis result recommended_next_call.duration_minutes must be between 1 and 30")
 	}
 	return nil
 }

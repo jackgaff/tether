@@ -254,16 +254,55 @@ func (r *PostgresRepository) MarkSessionStreaming(ctx context.Context, sessionID
 }
 
 func (r *PostgresRepository) MarkCallRunInProgress(ctx context.Context, sessionID string, startedAt time.Time) error {
-	_, err := r.db.ExecContext(ctx, `
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin mark call run in progress tx: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	var (
+		callRunID   string
+		patientID   string
+		triggerType string
+	)
+	row := tx.QueryRowContext(ctx, `
 		update call_runs
 		set status = 'in_progress',
 		    started_at = coalesce(started_at, $2),
 		    updated_at = $2
 		where source_voice_session_id = $1
 		  and status = 'requested'
+		returning id, patient_id, trigger_type
 	`, sessionID, startedAt)
-	if err != nil {
-		return fmt.Errorf("mark call run in progress: %w", err)
+	if scanErr := row.Scan(&callRunID, &patientID, &triggerType); scanErr != nil {
+		if errors.Is(scanErr, sql.ErrNoRows) {
+			return nil
+		}
+		err = fmt.Errorf("mark call run in progress: %w", scanErr)
+		return err
+	}
+
+	if triggerType == "approved_next_call" {
+		if _, execErr := tx.ExecContext(ctx, `
+			update next_call_plans
+			set approval_status = 'executed',
+			    executed_call_run_id = $2,
+			    updated_at = $3
+			where patient_id = $1
+			  and approval_status = 'approved'
+			  and executed_call_run_id is null
+		`, patientID, callRunID, startedAt); execErr != nil {
+			err = fmt.Errorf("mark approved next call plan executed: %w", execErr)
+			return err
+		}
+	}
+
+	if commitErr := tx.Commit(); commitErr != nil {
+		return fmt.Errorf("commit mark call run in progress tx: %w", commitErr)
 	}
 
 	return nil

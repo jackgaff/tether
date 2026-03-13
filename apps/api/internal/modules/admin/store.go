@@ -44,13 +44,12 @@ type PostgresStore struct {
 }
 
 type CreateCallRunParams struct {
-	PatientID      string
-	CaregiverID    string
-	CallTemplate   CallTemplate
-	Channel        string
-	TriggerType    string
-	RequestedAt    time.Time
-	NextCallPlanID string
+	PatientID    string
+	CaregiverID  string
+	CallTemplate CallTemplate
+	Channel      string
+	TriggerType  string
+	RequestedAt  time.Time
 }
 
 type SaveAnalysisResultInput struct {
@@ -639,24 +638,28 @@ func (s *PostgresStore) CreateCallRun(ctx context.Context, input CreateCallRunPa
 		return CallRun{}, err
 	}
 
-	if strings.TrimSpace(input.NextCallPlanID) != "" {
-		if _, execErr := tx.ExecContext(ctx, `
-			update next_call_plans
-			set approval_status = 'executed',
-			    executed_call_run_id = $2,
-			    updated_at = $3
-			where id = $1 and approval_status = 'approved'
-		`, input.NextCallPlanID, callRun.ID, input.RequestedAt); execErr != nil {
-			err = fmt.Errorf("mark next call plan executed: %w", execErr)
-			return CallRun{}, err
-		}
-	}
-
 	if commitErr := tx.Commit(); commitErr != nil {
 		return CallRun{}, fmt.Errorf("commit create call run tx: %w", commitErr)
 	}
 
 	return callRun, nil
+}
+
+func (s *PostgresStore) MarkCallRunFailed(ctx context.Context, callRunID, stopReason string, endedAt time.Time) error {
+	_, err := s.db.ExecContext(ctx, `
+		update call_runs
+		set status = 'failed',
+		    ended_at = $2,
+		    stop_reason = nullif($3, ''),
+		    updated_at = $2
+		where id = $1
+		  and status = 'requested'
+	`, strings.TrimSpace(callRunID), endedAt, stopReason)
+	if err != nil {
+		return fmt.Errorf("mark call run failed: %w", err)
+	}
+
+	return nil
 }
 
 func (s *PostgresStore) GetCallRun(ctx context.Context, callRunID string) (CallRun, bool, error) {
