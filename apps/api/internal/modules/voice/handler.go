@@ -83,8 +83,10 @@ func (h Handler) CreateSession(w http.ResponseWriter, r *http.Request) {
 	session, err := h.service.CreateSession(r.Context(), input)
 	if err != nil {
 		switch {
-		case errors.Is(err, ErrPatientIDRequired), errors.Is(err, ErrVoiceNotAllowed), errors.Is(err, ErrSystemPromptTooLarge):
+		case errors.Is(err, ErrPatientIDRequired), errors.Is(err, ErrVoiceNotAllowed), errors.Is(err, ErrSystemPromptTooLarge), errors.Is(err, ErrCallRunNotFound), errors.Is(err, ErrCallRunPatientMismatch), errors.Is(err, ErrCallRunLinkInvalid):
 			respond.Error(w, http.StatusBadRequest, "validation_error", err.Error())
+		case errors.Is(err, ErrCallRunAlreadyLinked):
+			respond.Error(w, http.StatusConflict, "conflict", err.Error())
 		default:
 			respond.Error(w, http.StatusInternalServerError, "voice_session_error", "Could not create voice session.")
 		}

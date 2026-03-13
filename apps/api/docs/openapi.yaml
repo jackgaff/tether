@@ -1,10 +1,11 @@
 openapi: 3.1.0
 info:
   title: Nova Echoes API
-  version: 0.1.0
+  version: 0.2.0
   description: >
-    Starter API contract for the Nova Echoes hackathon project. This backend is
-    shaped for voice-driven check-ins, summaries, and future caregiver tooling.
+    Phase 1 API contract for Nova Echoes. The backend supports voice-driven
+    check-ins, caregiver-administered patient profiles, manual call runs,
+    strict post-call analysis, and next-call recommendation approval.
 servers:
   - url: http://localhost:8080
 paths:
@@ -45,6 +46,8 @@ paths:
     get:
       operationId: listCheckIns
       summary: List check-ins
+      security:
+        - ApiKeyAuth: []
       parameters:
         - in: query
           name: patientId
@@ -64,6 +67,8 @@ paths:
     post:
       operationId: createCheckIn
       summary: Create a check-in summary
+      security:
+        - ApiKeyAuth: []
       requestBody:
         required: true
         content:
@@ -119,11 +124,7 @@ paths:
       operationId: getPatientPreferences
       summary: Load a patient's setup-time voice preferences
       parameters:
-        - in: path
-          name: id
-          required: true
-          schema:
-            type: string
+        - $ref: "#/components/parameters/PatientIdPath"
       responses:
         "200":
           description: Patient preference snapshot returned
@@ -135,11 +136,7 @@ paths:
       operationId: putPatientPreferences
       summary: Save a patient's setup-time voice preferences
       parameters:
-        - in: path
-          name: id
-          required: true
-          schema:
-            type: string
+        - $ref: "#/components/parameters/PatientIdPath"
       requestBody:
         required: true
         content:
@@ -174,21 +171,539 @@ paths:
                 $ref: "#/components/schemas/VoiceSessionResponse"
         "400":
           $ref: "#/components/responses/ValidationError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+  /api/v1/admin/session/login:
+    post:
+      operationId: loginAdminSession
+      summary: Create a demo admin session and set the signed cookie
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminLoginRequest"
+      responses:
+        "200":
+          description: Session established
+          headers:
+            Set-Cookie:
+              description: HttpOnly admin session cookie.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminSessionResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedSessionError"
+  /api/v1/admin/session:
+    get:
+      operationId: getAdminSession
+      summary: Inspect the active admin session
+      security:
+        - AdminSessionAuth: []
+      responses:
+        "200":
+          description: Active admin session returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminSessionResponse"
+        "401":
+          $ref: "#/components/responses/UnauthorizedSessionError"
+  /api/v1/admin/session/logout:
+    post:
+      operationId: logoutAdminSession
+      summary: Clear the active admin session cookie
+      security:
+        - AdminSessionAuth: []
+      responses:
+        "200":
+          description: Session cleared
+          headers:
+            Set-Cookie:
+              description: Expired admin session cookie.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminLogoutResponse"
+        "401":
+          $ref: "#/components/responses/UnauthorizedSessionError"
+  /api/v1/admin/caregivers:
+    post:
+      operationId: createCaregiver
+      summary: Create a caregiver profile
+      security:
+        - AdminSessionAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCaregiverRequest"
+      responses:
+        "201":
+          description: Caregiver created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CaregiverResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedSessionError"
+  /api/v1/admin/caregivers/{id}:
+    get:
+      operationId: getCaregiver
+      summary: Load a caregiver profile
+      security:
+        - AdminSessionAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CaregiverIdPath"
+      responses:
+        "200":
+          description: Caregiver returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CaregiverResponse"
+        "401":
+          $ref: "#/components/responses/UnauthorizedSessionError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+    put:
+      operationId: updateCaregiver
+      summary: Update a caregiver profile
+      security:
+        - AdminSessionAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CaregiverIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCaregiverRequest"
+      responses:
+        "200":
+          description: Caregiver updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CaregiverResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedSessionError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+  /api/v1/admin/patients:
+    post:
+      operationId: createPatient
+      summary: Create a patient profile linked to one caregiver
+      security:
+        - AdminSessionAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePatientRequest"
+      responses:
+        "201":
+          description: Patient created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PatientResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedSessionError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+  /api/v1/admin/patients/{id}:
+    get:
+      operationId: getPatient
+      summary: Load a patient profile
+      security:
+        - AdminSessionAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PatientIdPath"
+      responses:
+        "200":
+          description: Patient returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PatientResponse"
+        "401":
+          $ref: "#/components/responses/UnauthorizedSessionError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+    put:
+      operationId: updatePatient
+      summary: Update a patient profile
+      security:
+        - AdminSessionAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PatientIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdatePatientRequest"
+      responses:
+        "200":
+          description: Patient updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PatientResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedSessionError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+  /api/v1/admin/patients/{id}/consent:
+    get:
+      operationId: getPatientConsentState
+      summary: Load the patient consent state
+      security:
+        - AdminSessionAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PatientIdPath"
+      responses:
+        "200":
+          description: Consent state returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsentStateResponse"
+        "401":
+          $ref: "#/components/responses/UnauthorizedSessionError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+    put:
+      operationId: putPatientConsentState
+      summary: Create or update the patient consent state
+      security:
+        - AdminSessionAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PatientIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateConsentRequest"
+      responses:
+        "200":
+          description: Consent state saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsentStateResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedSessionError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+  /api/v1/admin/patients/{id}/pause:
+    post:
+      operationId: pausePatientCalling
+      summary: Pause outgoing calls for a patient
+      security:
+        - AdminSessionAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PatientIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PausePatientRequest"
+      responses:
+        "200":
+          description: Patient calling paused
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PatientResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedSessionError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+    delete:
+      operationId: unpausePatientCalling
+      summary: Resume outgoing calls for a patient
+      security:
+        - AdminSessionAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PatientIdPath"
+      responses:
+        "200":
+          description: Patient calling resumed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PatientResponse"
+        "401":
+          $ref: "#/components/responses/UnauthorizedSessionError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+  /api/v1/admin/call-templates:
+    get:
+      operationId: listCallTemplates
+      summary: List active and inactive call templates
+      security:
+        - AdminSessionAuth: []
+      responses:
+        "200":
+          description: Call templates returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CallTemplateListResponse"
+        "401":
+          $ref: "#/components/responses/UnauthorizedSessionError"
+  /api/v1/admin/patients/{id}/dashboard:
+    get:
+      operationId: getPatientDashboard
+      summary: Load the caregiver dashboard snapshot for a patient
+      security:
+        - AdminSessionAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PatientIdPath"
+      responses:
+        "200":
+          description: Dashboard snapshot returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardResponse"
+        "401":
+          $ref: "#/components/responses/UnauthorizedSessionError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+  /api/v1/admin/patients/{id}/calls:
+    post:
+      operationId: createPatientCallRun
+      summary: Create a manual or approved-next-call run
+      description: >
+        For manual calls, provide exactly one of `callTemplateId` or `callType`.
+        If only `callType` is provided, the server resolves it to the single
+        active template for that type. When `channel=browser`, the response
+        includes a voice session bootstrap object.
+      security:
+        - AdminSessionAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PatientIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCallRequest"
+      responses:
+        "201":
+          description: Call run created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateCallResponseEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedSessionError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+  /api/v1/admin/calls/{id}:
+    get:
+      operationId: getCallRun
+      summary: Load a call run with transcript turns and analysis if present
+      security:
+        - AdminSessionAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CallRunIdPath"
+      responses:
+        "200":
+          description: Call run detail returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CallRunDetailResponse"
+        "401":
+          $ref: "#/components/responses/UnauthorizedSessionError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+  /api/v1/admin/calls/{id}/analyze:
+    post:
+      operationId: analyzeCallRun
+      summary: Run or return strict post-call analysis for a completed call run
+      security:
+        - AdminSessionAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CallRunIdPath"
+        - in: query
+          name: force
+          required: false
+          description: Re-run analysis and overwrite the existing stored result.
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: Analysis returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalysisRecordResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedSessionError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+  /api/v1/admin/calls/{id}/analysis:
+    get:
+      operationId: getCallRunAnalysis
+      summary: Load the saved analysis for a call run
+      security:
+        - AdminSessionAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CallRunIdPath"
+      responses:
+        "200":
+          description: Analysis returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalysisRecordResponse"
+        "401":
+          $ref: "#/components/responses/UnauthorizedSessionError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+  /api/v1/admin/patients/{id}/next-call:
+    get:
+      operationId: getPatientNextCallPlan
+      summary: Load the active next-call recommendation for a patient
+      security:
+        - AdminSessionAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PatientIdPath"
+      responses:
+        "200":
+          description: Active next-call plan returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NextCallPlanResponse"
+        "401":
+          $ref: "#/components/responses/UnauthorizedSessionError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+    put:
+      operationId: updatePatientNextCallPlan
+      summary: Approve, edit, reject, or cancel the active next-call plan
+      security:
+        - AdminSessionAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PatientIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateNextCallPlanRequest"
+      responses:
+        "200":
+          description: Next-call plan updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NextCallPlanResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedSessionError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
 components:
+  parameters:
+    PatientIdPath:
+      in: path
+      name: id
+      required: true
+      schema:
+        type: string
+      description: Patient identifier.
+    CaregiverIdPath:
+      in: path
+      name: id
+      required: true
+      schema:
+        type: string
+      description: Caregiver identifier.
+    CallRunIdPath:
+      in: path
+      name: id
+      required: true
+      schema:
+        type: string
+      description: Call run identifier.
   securitySchemes:
     ApiKeyAuth:
       type: apiKey
       in: header
       name: X-API-Key
+    AdminSessionAuth:
+      type: apiKey
+      in: cookie
+      name: nova_echoes_admin_session
   responses:
     ValidationError:
-      description: Request body failed validation
+      description: Request body or parameters failed validation
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
     UnauthorizedError:
       description: Missing or invalid API key
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    UnauthorizedSessionError:
+      description: Missing or invalid admin session
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFoundError:
+      description: Requested resource was not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    ConflictError:
+      description: Request could not be completed because of a resource conflict
       content:
         application/json:
           schema:
@@ -218,6 +733,13 @@ components:
             time:
               type: string
               format: date-time
+          required:
+            - status
+            - service
+            - env
+            - authMode
+            - databaseURLConfigured
+            - time
       required:
         - data
     RootResponse:
@@ -237,10 +759,30 @@ components:
             docsPath:
               type: string
               example: /openapi.yaml
+          required:
+            - name
+            - environment
+            - docsPath
       required:
         - data
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+          required:
+            - code
+            - message
+      required:
+        - error
     CreateCheckInRequest:
       type: object
+      additionalProperties: false
       properties:
         patientId:
           type: string
@@ -314,6 +856,8 @@ components:
           properties:
             count:
               type: integer
+          required:
+            - count
       required:
         - data
         - meta
@@ -386,6 +930,7 @@ components:
         - data
     UpdatePatientPreferenceRequest:
       type: object
+      additionalProperties: false
       properties:
         defaultVoiceId:
           type: string
@@ -413,6 +958,7 @@ components:
         - channels
     CreateVoiceSessionRequest:
       type: object
+      additionalProperties: false
       properties:
         patientId:
           type: string
@@ -426,6 +972,9 @@ components:
           example: >-
             You are a gentle check-in assistant for older adults. Speak slowly,
             ask one question at a time, and confirm important details back to the caller.
+        callRunId:
+          type: string
+          description: Optional existing call run to link to this browser voice session.
       required:
         - patientId
     VoiceSession:
@@ -546,20 +1095,893 @@ components:
               type: integer
             limit:
               type: integer
+          required:
+            - count
+            - limit
       required:
         - data
-    ErrorResponse:
+        - meta
+    AdminLoginRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+          format: password
+      required:
+        - username
+        - password
+    AdminSession:
       type: object
       properties:
-        error:
+        username:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+      required:
+        - username
+        - expiresAt
+    AdminSessionResponse:
+      type: object
+      properties:
+        data:
+          $ref: "#/components/schemas/AdminSession"
+      required:
+        - data
+    AdminLogoutStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum:
+            - logged_out
+      required:
+        - status
+    AdminLogoutResponse:
+      type: object
+      properties:
+        data:
+          $ref: "#/components/schemas/AdminLogoutStatus"
+      required:
+        - data
+    Caregiver:
+      type: object
+      properties:
+        id:
+          type: string
+        displayName:
+          type: string
+        email:
+          type: string
+          format: email
+        phoneE164:
+          type: string
+        timezone:
+          type: string
+          example: America/Detroit
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - displayName
+        - email
+        - timezone
+        - createdAt
+        - updatedAt
+    CaregiverResponse:
+      type: object
+      properties:
+        data:
+          $ref: "#/components/schemas/Caregiver"
+      required:
+        - data
+    CreateCaregiverRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        displayName:
+          type: string
+        email:
+          type: string
+          format: email
+        phoneE164:
+          type: string
+        timezone:
+          type: string
+          example: America/Detroit
+      required:
+        - displayName
+        - email
+        - timezone
+    UpdateCaregiverRequest:
+      $ref: "#/components/schemas/CreateCaregiverRequest"
+    Patient:
+      type: object
+      properties:
+        id:
+          type: string
+        primaryCaregiverId:
+          type: string
+        displayName:
+          type: string
+        preferredName:
+          type: string
+        phoneE164:
+          type: string
+        timezone:
+          type: string
+          example: America/Detroit
+        notes:
+          type: string
+        callingState:
+          type: string
+          enum:
+            - active
+            - paused
+        pauseReason:
+          type: string
+        pausedAt:
+          type: string
+          format: date-time
+        routineAnchors:
+          type: array
+          items:
+            type: string
+        favoriteTopics:
+          type: array
+          items:
+            type: string
+        calmingCues:
+          type: array
+          items:
+            type: string
+        topicsToAvoid:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - primaryCaregiverId
+        - displayName
+        - preferredName
+        - timezone
+        - callingState
+        - routineAnchors
+        - favoriteTopics
+        - calmingCues
+        - topicsToAvoid
+        - createdAt
+        - updatedAt
+    PatientResponse:
+      type: object
+      properties:
+        data:
+          $ref: "#/components/schemas/Patient"
+      required:
+        - data
+    CreatePatientRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        primaryCaregiverId:
+          type: string
+        displayName:
+          type: string
+        preferredName:
+          type: string
+        phoneE164:
+          type: string
+        timezone:
+          type: string
+          example: America/Detroit
+        notes:
+          type: string
+        routineAnchors:
+          type: array
+          items:
+            type: string
+        favoriteTopics:
+          type: array
+          items:
+            type: string
+        calmingCues:
+          type: array
+          items:
+            type: string
+        topicsToAvoid:
+          type: array
+          items:
+            type: string
+      required:
+        - primaryCaregiverId
+        - displayName
+        - preferredName
+        - timezone
+    UpdatePatientRequest:
+      $ref: "#/components/schemas/CreatePatientRequest"
+    ConsentState:
+      type: object
+      properties:
+        patientId:
+          type: string
+        outboundCallStatus:
+          type: string
+          enum:
+            - pending
+            - granted
+            - revoked
+        transcriptStorageStatus:
+          type: string
+          enum:
+            - pending
+            - granted
+            - revoked
+        grantedByCaregiverId:
+          type: string
+        grantedAt:
+          type: string
+          format: date-time
+        revokedAt:
+          type: string
+          format: date-time
+        notes:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - patientId
+        - outboundCallStatus
+        - transcriptStorageStatus
+        - createdAt
+        - updatedAt
+    ConsentStateResponse:
+      type: object
+      properties:
+        data:
+          $ref: "#/components/schemas/ConsentState"
+      required:
+        - data
+    UpdateConsentRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        outboundCallStatus:
+          type: string
+          enum:
+            - pending
+            - granted
+            - revoked
+        transcriptStorageStatus:
+          type: string
+          enum:
+            - pending
+            - granted
+            - revoked
+        notes:
+          type: string
+      required:
+        - outboundCallStatus
+        - transcriptStorageStatus
+    PausePatientRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+    CallTemplate:
+      type: object
+      properties:
+        id:
+          type: string
+        slug:
+          type: string
+        displayName:
+          type: string
+        callType:
+          type: string
+          enum:
+            - orientation
+            - reminder
+            - wellbeing
+            - reminiscence
+        description:
+          type: string
+        durationMinutes:
+          type: integer
+          minimum: 1
+          maximum: 30
+        promptVersion:
+          type: string
+        systemPromptTemplate:
+          type: string
+        checklist:
+          type: array
+          items:
+            type: string
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - slug
+        - displayName
+        - callType
+        - description
+        - durationMinutes
+        - promptVersion
+        - systemPromptTemplate
+        - checklist
+        - isActive
+        - createdAt
+        - updatedAt
+    CallTemplateListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/CallTemplate"
+        meta:
           type: object
           properties:
-            code:
-              type: string
-            message:
-              type: string
+            count:
+              type: integer
           required:
-            - code
-            - message
+            - count
       required:
-        - error
+        - data
+        - meta
+    CallRun:
+      type: object
+      properties:
+        id:
+          type: string
+        patientId:
+          type: string
+        caregiverId:
+          type: string
+        callTemplateId:
+          type: string
+        callTemplateSlug:
+          type: string
+        callTemplateName:
+          type: string
+        callType:
+          type: string
+          enum:
+            - orientation
+            - reminder
+            - wellbeing
+            - reminiscence
+        channel:
+          type: string
+          enum:
+            - browser
+            - connect
+        triggerType:
+          type: string
+          enum:
+            - manual
+            - approved_next_call
+        status:
+          type: string
+          enum:
+            - requested
+            - in_progress
+            - completed
+            - failed
+            - cancelled
+        sourceVoiceSessionId:
+          type: string
+        requestedAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: string
+          format: date-time
+        endedAt:
+          type: string
+          format: date-time
+        stopReason:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - patientId
+        - caregiverId
+        - callTemplateId
+        - callType
+        - channel
+        - triggerType
+        - status
+        - requestedAt
+        - createdAt
+        - updatedAt
+    CallTranscriptTurn:
+      type: object
+      properties:
+        sequenceNo:
+          type: integer
+        direction:
+          type: string
+          enum:
+            - user
+            - assistant
+        modality:
+          type: string
+          enum:
+            - audio
+            - text
+        text:
+          type: string
+        occurredAt:
+          type: string
+          format: date-time
+        stopReason:
+          type: string
+      required:
+        - sequenceNo
+        - direction
+        - modality
+        - text
+        - occurredAt
+    CreateCallRequest:
+      type: object
+      additionalProperties: false
+      description: >
+        For manual calls, send exactly one of `callTemplateId` or `callType`.
+        For approved-next-call execution, set `triggerType` to
+        `approved_next_call` and omit both template selectors.
+      properties:
+        callTemplateId:
+          type: string
+        callType:
+          type: string
+          enum:
+            - orientation
+            - reminder
+            - wellbeing
+            - reminiscence
+        channel:
+          type: string
+          enum:
+            - browser
+            - connect
+        triggerType:
+          type: string
+          enum:
+            - manual
+            - approved_next_call
+      required: []
+    CreateCallResponse:
+      type: object
+      properties:
+        callRun:
+          $ref: "#/components/schemas/CallRun"
+        voiceSession:
+          allOf:
+            - $ref: "#/components/schemas/VoiceSession"
+          description: Present only when the call is created for the browser voice channel.
+      required:
+        - callRun
+    CreateCallResponseEnvelope:
+      type: object
+      properties:
+        data:
+          $ref: "#/components/schemas/CreateCallResponse"
+      required:
+        - data
+    CallRunDetail:
+      type: object
+      properties:
+        callRun:
+          $ref: "#/components/schemas/CallRun"
+        transcriptTurns:
+          type: array
+          items:
+            $ref: "#/components/schemas/CallTranscriptTurn"
+        analysis:
+          $ref: "#/components/schemas/AnalysisRecord"
+      required:
+        - callRun
+        - transcriptTurns
+    CallRunDetailResponse:
+      type: object
+      properties:
+        data:
+          $ref: "#/components/schemas/CallRunDetail"
+      required:
+        - data
+    AnalysisPatientState:
+      type: object
+      additionalProperties: false
+      properties:
+        orientation:
+          type: string
+          enum:
+            - good
+            - mixed
+            - poor
+            - unclear
+        mood:
+          type: string
+          enum:
+            - positive
+            - neutral
+            - anxious
+            - sad
+            - distressed
+            - unclear
+        engagement:
+          type: string
+          enum:
+            - high
+            - medium
+            - low
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+      required:
+        - orientation
+        - mood
+        - engagement
+        - confidence
+    AnalysisSignals:
+      type: object
+      additionalProperties: false
+      properties:
+        repetition:
+          type: integer
+          minimum: 0
+        routine_adherence_issue:
+          type: boolean
+        sleep_concern:
+          type: boolean
+        nutrition_or_hydration_concern:
+          type: boolean
+        possible_safety_concern:
+          type: boolean
+        possible_bpsd_signals:
+          type: array
+          items:
+            type: string
+        social_connection_need:
+          type: boolean
+      required:
+        - repetition
+        - routine_adherence_issue
+        - sleep_concern
+        - nutrition_or_hydration_concern
+        - possible_safety_concern
+        - possible_bpsd_signals
+        - social_connection_need
+    AnalysisEvidence:
+      type: object
+      additionalProperties: false
+      properties:
+        quote:
+          type: string
+        why_it_matters:
+          type: string
+      required:
+        - quote
+        - why_it_matters
+    RecommendedNextCall:
+      type: object
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum:
+            - orientation
+            - reminder
+            - wellbeing
+            - reminiscence
+        timing:
+          type: string
+        duration_minutes:
+          type: integer
+          minimum: 1
+          maximum: 30
+        goal:
+          type: string
+      required:
+        - type
+        - timing
+        - duration_minutes
+        - goal
+    AnalysisPayload:
+      type: object
+      additionalProperties: false
+      properties:
+        call_type_completed:
+          type: string
+          enum:
+            - orientation
+            - reminder
+            - wellbeing
+            - reminiscence
+        patient_state:
+          $ref: "#/components/schemas/AnalysisPatientState"
+        signals:
+          $ref: "#/components/schemas/AnalysisSignals"
+        evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/AnalysisEvidence"
+        dashboard_summary:
+          type: string
+        caregiver_summary:
+          type: string
+        recommended_next_call:
+          $ref: "#/components/schemas/RecommendedNextCall"
+        escalation_level:
+          type: string
+          enum:
+            - none
+            - caregiver_soon
+            - caregiver_now
+            - clinical_review
+        uncertainties:
+          type: array
+          items:
+            type: string
+      required:
+        - call_type_completed
+        - patient_state
+        - signals
+        - evidence
+        - dashboard_summary
+        - caregiver_summary
+        - recommended_next_call
+        - escalation_level
+        - uncertainties
+    RiskFlag:
+      type: object
+      properties:
+        id:
+          type: string
+        analysisResultId:
+          type: string
+        flagType:
+          type: string
+        severity:
+          type: string
+          enum:
+            - info
+            - watch
+            - urgent
+        evidenceQuote:
+          type: string
+        whyItMatters:
+          type: string
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - analysisResultId
+        - flagType
+        - severity
+        - confidence
+        - createdAt
+    AnalysisRecord:
+      type: object
+      properties:
+        id:
+          type: string
+        callRunId:
+          type: string
+        modelId:
+          type: string
+        schemaVersion:
+          type: string
+          example: v1
+        result:
+          $ref: "#/components/schemas/AnalysisPayload"
+        riskFlags:
+          type: array
+          items:
+            $ref: "#/components/schemas/RiskFlag"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - callRunId
+        - modelId
+        - schemaVersion
+        - result
+        - riskFlags
+        - createdAt
+        - updatedAt
+    AnalysisRecordResponse:
+      type: object
+      properties:
+        data:
+          $ref: "#/components/schemas/AnalysisRecord"
+      required:
+        - data
+    NextCallPlan:
+      type: object
+      properties:
+        id:
+          type: string
+        patientId:
+          type: string
+        sourceAnalysisResultId:
+          type: string
+        callTemplateId:
+          type: string
+        callTemplateSlug:
+          type: string
+        callTemplateName:
+          type: string
+        callType:
+          type: string
+          enum:
+            - orientation
+            - reminder
+            - wellbeing
+            - reminiscence
+        suggestedTimeNote:
+          type: string
+        plannedFor:
+          type: string
+          format: date-time
+        durationMinutes:
+          type: integer
+          minimum: 1
+          maximum: 30
+        goal:
+          type: string
+        approvalStatus:
+          type: string
+          enum:
+            - pending_approval
+            - approved
+            - rejected
+            - executed
+            - superseded
+            - cancelled
+        approvedByCaregiverId:
+          type: string
+        approvedByAdminUsername:
+          type: string
+        approvedAt:
+          type: string
+          format: date-time
+        rejectionReason:
+          type: string
+        rejectedAt:
+          type: string
+          format: date-time
+        executedCallRunId:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - patientId
+        - sourceAnalysisResultId
+        - callTemplateId
+        - callType
+        - durationMinutes
+        - goal
+        - approvalStatus
+        - createdAt
+        - updatedAt
+    NextCallPlanResponse:
+      type: object
+      properties:
+        data:
+          $ref: "#/components/schemas/NextCallPlan"
+      required:
+        - data
+    UpdateNextCallPlanRequest:
+      type: object
+      additionalProperties: false
+      description: >
+        `action` controls behavior. `approve` marks the plan approved.
+        `edit` can update the template, timing note, planned time, duration, or goal.
+        `reject` and `cancel` may include a reason.
+      properties:
+        action:
+          type: string
+          enum:
+            - approve
+            - edit
+            - reject
+            - cancel
+        callTemplateId:
+          type: string
+        suggestedTimeNote:
+          type: string
+        plannedFor:
+          type: string
+          format: date-time
+        durationMinutes:
+          type: integer
+          minimum: 1
+          maximum: 30
+        goal:
+          type: string
+        reason:
+          type: string
+      required:
+        - action
+    DashboardSnapshot:
+      type: object
+      properties:
+        patient:
+          $ref: "#/components/schemas/Patient"
+        caregiver:
+          $ref: "#/components/schemas/Caregiver"
+        consent:
+          $ref: "#/components/schemas/ConsentState"
+        latestCall:
+          $ref: "#/components/schemas/CallRun"
+        recentCalls:
+          type: array
+          items:
+            $ref: "#/components/schemas/CallRun"
+        latestAnalysis:
+          $ref: "#/components/schemas/AnalysisRecord"
+        activeNextCallPlan:
+          $ref: "#/components/schemas/NextCallPlan"
+        riskFlags:
+          type: array
+          items:
+            $ref: "#/components/schemas/RiskFlag"
+      required:
+        - patient
+        - caregiver
+        - consent
+        - recentCalls
+        - riskFlags
+    DashboardResponse:
+      type: object
+      properties:
+        data:
+          $ref: "#/components/schemas/DashboardSnapshot"
+      required:
+        - data

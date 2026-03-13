@@ -28,6 +28,9 @@ var configKeys = []string{
 	"NOVA_INPUT_SAMPLE_RATE",
 	"NOVA_OUTPUT_SAMPLE_RATE",
 	"NOVA_ENDPOINTING_SENSITIVITY",
+	"ADMIN_USERNAME",
+	"ADMIN_PASSWORD",
+	"ADMIN_SESSION_SECRET",
 }
 
 func TestLoadFromEnvLocalOverridesEnv(t *testing.T) {

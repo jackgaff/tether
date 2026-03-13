@@ -13,11 +13,14 @@ import (
 
 type Repository interface {
 	CreateSession(ctx context.Context, session SessionRecord) error
+	LinkCallRun(ctx context.Context, callRunID, patientID, sessionID string, now time.Time) error
 	ConsumeAttachToken(ctx context.Context, sessionID string, tokenHash []byte, now time.Time) (SessionRecord, error)
 	MarkSessionStreaming(ctx context.Context, sessionID, promptName string, sessionExpiresAt, now time.Time) error
+	MarkCallRunInProgress(ctx context.Context, sessionID string, startedAt time.Time) error
 	UpdateSessionMetadata(ctx context.Context, sessionID, bedrockSessionID, promptName string, sessionExpiresAt *time.Time, now time.Time) error
 	MarkDisconnectGrace(ctx context.Context, sessionID string, disconnectedAt, graceExpiresAt time.Time) error
 	MarkSessionEnded(ctx context.Context, sessionID, status, stopReason, failureCode, failureMessage string, endedAt time.Time) error
+	MarkCallRunEnded(ctx context.Context, sessionID, status, stopReason string, endedAt time.Time) error
 	TouchSession(ctx context.Context, sessionID string, now time.Time) error
 	SaveTranscriptTurn(ctx context.Context, turn TranscriptTurn) error
 	SaveUsageEvent(ctx context.Context, event UsageEvent) error
@@ -56,6 +59,68 @@ func (r *PostgresRepository) CreateSession(ctx context.Context, session SessionR
 		session.StreamTokenExpiresAt, session.LastActivityAt)
 	if err != nil {
 		return fmt.Errorf("create voice session: %w", err)
+	}
+
+	return nil
+}
+
+func (r *PostgresRepository) LinkCallRun(ctx context.Context, callRunID, patientID, sessionID string, now time.Time) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin call run link tx: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	var (
+		storedPatientID string
+		status          string
+		sourceSessionID sql.NullString
+	)
+	row := tx.QueryRowContext(ctx, `
+		select patient_id, status, source_voice_session_id
+		from call_runs
+		where id = $1
+		for update
+	`, callRunID)
+	if scanErr := row.Scan(&storedPatientID, &status, &sourceSessionID); scanErr != nil {
+		if errors.Is(scanErr, sql.ErrNoRows) {
+			err = ErrCallRunNotFound
+			return err
+		}
+
+		err = fmt.Errorf("load call run for voice session link: %w", scanErr)
+		return err
+	}
+
+	if storedPatientID != patientID {
+		err = ErrCallRunPatientMismatch
+		return err
+	}
+	if sourceSessionID.Valid && strings.TrimSpace(sourceSessionID.String) != "" {
+		err = ErrCallRunAlreadyLinked
+		return err
+	}
+	if status != "requested" {
+		err = ErrCallRunLinkInvalid
+		return err
+	}
+
+	if _, execErr := tx.ExecContext(ctx, `
+		update call_runs
+		set source_voice_session_id = $2,
+		    updated_at = $3
+		where id = $1
+	`, callRunID, sessionID, now); execErr != nil {
+		err = fmt.Errorf("link call run to voice session: %w", execErr)
+		return err
+	}
+
+	if commitErr := tx.Commit(); commitErr != nil {
+		return fmt.Errorf("commit call run link tx: %w", commitErr)
 	}
 
 	return nil
@@ -188,6 +253,22 @@ func (r *PostgresRepository) MarkSessionStreaming(ctx context.Context, sessionID
 	return nil
 }
 
+func (r *PostgresRepository) MarkCallRunInProgress(ctx context.Context, sessionID string, startedAt time.Time) error {
+	_, err := r.db.ExecContext(ctx, `
+		update call_runs
+		set status = 'in_progress',
+		    started_at = coalesce(started_at, $2),
+		    updated_at = $2
+		where source_voice_session_id = $1
+		  and status = 'requested'
+	`, sessionID, startedAt)
+	if err != nil {
+		return fmt.Errorf("mark call run in progress: %w", err)
+	}
+
+	return nil
+}
+
 func (r *PostgresRepository) UpdateSessionMetadata(ctx context.Context, sessionID, bedrockSessionID, promptName string, sessionExpiresAt *time.Time, now time.Time) error {
 	_, err := r.db.ExecContext(ctx, `
 		update voice_sessions
@@ -236,6 +317,23 @@ func (r *PostgresRepository) MarkSessionEnded(ctx context.Context, sessionID, st
 	`, sessionID, status, stopReason, failureCode, failureMessage, endedAt)
 	if err != nil {
 		return fmt.Errorf("mark session ended: %w", err)
+	}
+
+	return nil
+}
+
+func (r *PostgresRepository) MarkCallRunEnded(ctx context.Context, sessionID, status, stopReason string, endedAt time.Time) error {
+	_, err := r.db.ExecContext(ctx, `
+		update call_runs
+		set status = $2,
+		    ended_at = $3,
+		    stop_reason = nullif($4, ''),
+		    updated_at = $3
+		where source_voice_session_id = $1
+		  and status in ('requested', 'in_progress')
+	`, sessionID, status, endedAt, stopReason)
+	if err != nil {
+		return fmt.Errorf("mark call run ended: %w", err)
 	}
 
 	return nil

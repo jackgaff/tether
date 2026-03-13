@@ -9,8 +9,10 @@ import (
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"nova-echoes/api/db"
+	"nova-echoes/api/internal/adminsession"
 	"nova-echoes/api/internal/config"
 	"nova-echoes/api/internal/httpserver"
+	"nova-echoes/api/internal/modules/admin"
 	"nova-echoes/api/internal/modules/checkins"
 	"nova-echoes/api/internal/modules/patients/preferences"
 	"nova-echoes/api/internal/modules/voice"
@@ -50,6 +52,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		return nil, err
 	}
 
+	bedrockClient := bedrockruntime.NewFromConfig(awsCfg)
 	checkInHandler := checkins.NewHandler(checkins.NewPostgresStore(database))
 	preferenceStore := preferences.NewPostgresStore(database)
 	preferenceHandler := preferences.NewHandler(preferenceStore, catalog)
@@ -59,11 +62,15 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		catalog,
 		voice.NewPostgresRepository(database),
 		preferenceStore,
-		voice.NewBedrockAdapter(bedrockruntime.NewFromConfig(awsCfg)),
+		voice.NewBedrockAdapter(bedrockClient),
 		voice.NewFileArtifactExporter(cfg.VoiceLabExportDir),
 		sessionManager,
 	)
 	voiceHandler := voice.NewHandler(voiceService, cfg.AllowedFrontendOrigins)
+	adminStore := admin.NewPostgresStore(database)
+	adminService := admin.NewService(adminStore, voiceService, admin.NewBedrockAnalyzer(bedrockClient, cfg.NovaAnalysisModelID), cfg.NovaAnalysisModelID)
+	adminSessions := adminsession.New(cfg)
+	adminHandler := admin.NewHandler(adminStore, adminService, adminSessions)
 
 	return &App{
 		Config: cfg,
@@ -71,6 +78,8 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 			CheckIns:    checkInHandler,
 			Preferences: preferenceHandler,
 			Voice:       voiceHandler,
+			Admin:       adminHandler,
+			AdminAuth:   adminSessions.Middleware(),
 		}),
 		db:       database,
 		sessions: sessionManager,

@@ -79,6 +79,10 @@ func (r *voiceRepo) CreateSession(_ context.Context, session voice.SessionRecord
 	return nil
 }
 
+func (r *voiceRepo) LinkCallRun(_ context.Context, _, _, _ string, _ time.Time) error {
+	return nil
+}
+
 func (r *voiceRepo) ConsumeAttachToken(_ context.Context, sessionID string, tokenHash []byte, now time.Time) (voice.SessionRecord, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -111,6 +115,10 @@ func (r *voiceRepo) MarkSessionStreaming(_ context.Context, sessionID, promptNam
 	session.Status = voice.StatusStreaming
 	session.LastActivityAt = now
 	r.sessions[sessionID] = session
+	return nil
+}
+
+func (r *voiceRepo) MarkCallRunInProgress(_ context.Context, _ string, _ time.Time) error {
 	return nil
 }
 
@@ -156,6 +164,10 @@ func (r *voiceRepo) MarkSessionEnded(_ context.Context, sessionID, status, stopR
 	session.FailureMessage = failureMessage
 	session.EndedAt = &endedAt
 	r.sessions[sessionID] = session
+	return nil
+}
+
+func (r *voiceRepo) MarkCallRunEnded(_ context.Context, _, _, _ string, _ time.Time) error {
 	return nil
 }
 
