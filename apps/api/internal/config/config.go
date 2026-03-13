@@ -32,6 +32,9 @@ type Config struct {
 	NovaInputSampleRate        int
 	NovaOutputSampleRate       int
 	NovaEndpointingSensitivity string
+	AdminUsername              string
+	AdminPassword              string
+	AdminSessionSecret         string
 }
 
 func Load() (Config, error) {
@@ -71,6 +74,9 @@ func LoadFrom(baseDir string) (Config, error) {
 		NovaAnalysisModelID: getEnv("NOVA_ANALYSIS_MODEL_ID", "amazon.nova-2-lite-v1:0"),
 		NovaDefaultVoiceID:  getEnv("NOVA_DEFAULT_VOICE_ID", "matthew"),
 		NovaAllowedVoiceIDs: getEnvList("NOVA_ALLOWED_VOICE_IDS", voicecatalog.KnownIDs()),
+		AdminUsername:       getEnv("ADMIN_USERNAME", "demo-admin"),
+		AdminPassword:       getEnv("ADMIN_PASSWORD", "demo-admin-password"),
+		AdminSessionSecret:  getEnv("ADMIN_SESSION_SECRET", "demo-admin-session-secret-change-me"),
 	}
 
 	cfg.AllowedFrontendOrigins = getEnvList("ALLOWED_FRONTEND_ORIGINS", []string{cfg.FrontendOrigin})
@@ -119,6 +125,18 @@ func LoadFrom(baseDir string) (Config, error) {
 
 	if !slices.Contains(cfg.NovaAllowedVoiceIDs, cfg.NovaDefaultVoiceID) {
 		return Config{}, fmt.Errorf("NOVA_DEFAULT_VOICE_ID %q must be present in NOVA_ALLOWED_VOICE_IDS", cfg.NovaDefaultVoiceID)
+	}
+
+	if strings.TrimSpace(cfg.AdminUsername) == "" {
+		return Config{}, errors.New("ADMIN_USERNAME is required")
+	}
+
+	if strings.TrimSpace(cfg.AdminPassword) == "" {
+		return Config{}, errors.New("ADMIN_PASSWORD is required")
+	}
+
+	if len(strings.TrimSpace(cfg.AdminSessionSecret)) < 16 {
+		return Config{}, errors.New("ADMIN_SESSION_SECRET must be at least 16 characters")
 	}
 
 	return cfg, nil

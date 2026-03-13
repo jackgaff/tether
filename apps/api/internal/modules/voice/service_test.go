@@ -429,10 +429,10 @@ func TestNormalizeTranscriptText(t *testing.T) {
 	t.Parallel()
 
 	cases := map[string]string{
-		"  Hello there.  ":           "Hello there.",
-		"{ \"interrupted\": true }":  "",
-		"{\"interrupted\":false}":    "{\"interrupted\":false}",
-		"   ":                        "",
+		"  Hello there.  ":          "Hello there.",
+		"{ \"interrupted\": true }": "",
+		"{\"interrupted\":false}":   "{\"interrupted\":false}",
+		"   ":                       "",
 	}
 
 	for input, expected := range cases {
@@ -510,6 +510,10 @@ func (r *memoryRepository) CreateSession(_ context.Context, session SessionRecor
 	return nil
 }
 
+func (r *memoryRepository) LinkCallRun(_ context.Context, _, _, _ string, _ time.Time) error {
+	return nil
+}
+
 func (r *memoryRepository) ConsumeAttachToken(_ context.Context, sessionID string, tokenHash []byte, now time.Time) (SessionRecord, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -546,6 +550,10 @@ func (r *memoryRepository) MarkSessionStreaming(_ context.Context, sessionID, pr
 	session.SessionExpiresAt = &sessionExpiresAt
 	session.LastActivityAt = now
 	r.sessions[sessionID] = session
+	return nil
+}
+
+func (r *memoryRepository) MarkCallRunInProgress(_ context.Context, _ string, _ time.Time) error {
 	return nil
 }
 
@@ -589,6 +597,10 @@ func (r *memoryRepository) MarkSessionEnded(_ context.Context, sessionID, status
 	session.FailureMessage = failureMessage
 	session.EndedAt = &endedAt
 	r.sessions[sessionID] = session
+	return nil
+}
+
+func (r *memoryRepository) MarkCallRunEnded(_ context.Context, _, _, _ string, _ time.Time) error {
 	return nil
 }
 

@@ -69,6 +69,7 @@ func (s *Service) CreateSession(ctx context.Context, input CreateSessionRequest)
 	if len(systemPrompt) > maxSystemPromptBytes {
 		return SessionDescriptor{}, ErrSystemPromptTooLarge
 	}
+	callRunID := strings.TrimSpace(input.CallRunID)
 
 	voiceID, err := s.resolveVoiceID(ctx, patientID, strings.TrimSpace(input.VoiceID))
 	if err != nil {
@@ -108,6 +109,12 @@ func (s *Service) CreateSession(ctx context.Context, input CreateSessionRequest)
 
 	if err := s.repo.CreateSession(ctx, record); err != nil {
 		return SessionDescriptor{}, err
+	}
+	if callRunID != "" {
+		if err := s.repo.LinkCallRun(ctx, callRunID, patientID, sessionID, now); err != nil {
+			_ = s.repo.MarkSessionEnded(ctx, sessionID, StatusFailed, "", "call_run_link_failed", err.Error(), now)
+			return SessionDescriptor{}, err
+		}
 	}
 
 	return SessionDescriptor{
@@ -171,6 +178,7 @@ func (s *Service) Attach(ctx context.Context, sessionID, token string, conn *web
 		_ = s.repo.MarkSessionEnded(ctx, sessionID, StatusFailed, "", "session_mark_failed", err.Error(), s.now())
 		return err
 	}
+	_ = s.repo.MarkCallRunInProgress(ctx, sessionID, streamStartedAt)
 
 	runtime := &runtimeSession{
 		repo:             s.repo,
@@ -672,6 +680,9 @@ func (r *runtimeSession) finalize(ctx context.Context, err error) error {
 	if markErr := r.repo.MarkSessionEnded(ctx, r.sessionID, status, stopReason, failureCode, failureMessage, endedAt); markErr != nil && err == nil {
 		err = markErr
 	}
+	if markErr := r.repo.MarkCallRunEnded(ctx, r.sessionID, mapCallRunStatus(status), stopReason, endedAt); markErr != nil && err == nil {
+		err = markErr
+	}
 
 	var artifactPaths ArtifactPaths
 	if r.artifactExporter != nil {
@@ -732,6 +743,15 @@ func (r *runtimeSession) finalize(ctx context.Context, err error) error {
 	}
 
 	return err
+}
+
+func mapCallRunStatus(sessionStatus string) string {
+	switch sessionStatus {
+	case StatusCompleted:
+		return "completed"
+	default:
+		return "failed"
+	}
 }
 
 func (r *runtimeSession) touchSession(ctx context.Context, now time.Time) {

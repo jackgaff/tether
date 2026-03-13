@@ -45,6 +45,7 @@ type CreateSessionRequest struct {
 	PatientID    string `json:"patientId"`
 	VoiceID      string `json:"voiceId,omitempty"`
 	SystemPrompt string `json:"systemPrompt,omitempty"`
+	CallRunID    string `json:"callRunId,omitempty"`
 }
 
 type SessionDescriptor struct {

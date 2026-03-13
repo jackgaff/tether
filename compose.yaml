@@ -46,6 +46,9 @@ services:
       BEDROCK_REGION: ${BEDROCK_REGION:-us-east-1}
       NOVA_VOICE_MODEL_ID: ${NOVA_VOICE_MODEL_ID:-amazon.nova-2-sonic-v1:0}
       NOVA_ANALYSIS_MODEL_ID: ${NOVA_ANALYSIS_MODEL_ID:-amazon.nova-2-lite-v1:0}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-demo-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-demo-admin-password}
+      ADMIN_SESSION_SECRET: ${ADMIN_SESSION_SECRET:-demo-admin-session-secret-change-me}
     ports:
       - "8080:8080"
     volumes:

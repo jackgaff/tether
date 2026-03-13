@@ -8,6 +8,7 @@ import (
 	"nova-echoes/api/internal/config"
 	"nova-echoes/api/internal/httpserver/middleware"
 	"nova-echoes/api/internal/httpserver/respond"
+	"nova-echoes/api/internal/modules/admin"
 	"nova-echoes/api/internal/modules/checkins"
 	"nova-echoes/api/internal/modules/health"
 	"nova-echoes/api/internal/modules/patients/preferences"
@@ -18,6 +19,8 @@ type Dependencies struct {
 	CheckIns    checkins.Handler
 	Preferences preferences.Handler
 	Voice       voice.Handler
+	Admin       *admin.Handler
+	AdminAuth   middleware.Middleware
 }
 
 func New(cfg config.Config, deps Dependencies) http.Handler {
@@ -49,6 +52,34 @@ func New(cfg config.Config, deps Dependencies) http.Handler {
 	mux.Handle("PUT /api/v1/patients/{id}/preferences", http.HandlerFunc(deps.Preferences.Put))
 	mux.Handle("GET /api/v1/check-ins", middleware.Apply(http.HandlerFunc(deps.CheckIns.List), apiMiddleware...))
 	mux.Handle("POST /api/v1/check-ins", middleware.Apply(http.HandlerFunc(deps.CheckIns.Create), apiMiddleware...))
+	if deps.Admin != nil {
+		adminMiddleware := middleware.Chain()
+		if deps.AdminAuth != nil {
+			adminMiddleware = append(adminMiddleware, deps.AdminAuth)
+		}
+
+		mux.Handle("POST /api/v1/admin/session/login", http.HandlerFunc(deps.Admin.Login))
+		mux.Handle("GET /api/v1/admin/session", middleware.Apply(http.HandlerFunc(deps.Admin.CurrentSession), adminMiddleware...))
+		mux.Handle("POST /api/v1/admin/session/logout", middleware.Apply(http.HandlerFunc(deps.Admin.Logout), adminMiddleware...))
+		mux.Handle("POST /api/v1/admin/caregivers", middleware.Apply(http.HandlerFunc(deps.Admin.CreateCaregiver), adminMiddleware...))
+		mux.Handle("GET /api/v1/admin/caregivers/{id}", middleware.Apply(http.HandlerFunc(deps.Admin.GetCaregiver), adminMiddleware...))
+		mux.Handle("PUT /api/v1/admin/caregivers/{id}", middleware.Apply(http.HandlerFunc(deps.Admin.UpdateCaregiver), adminMiddleware...))
+		mux.Handle("POST /api/v1/admin/patients", middleware.Apply(http.HandlerFunc(deps.Admin.CreatePatient), adminMiddleware...))
+		mux.Handle("GET /api/v1/admin/patients/{id}", middleware.Apply(http.HandlerFunc(deps.Admin.GetPatient), adminMiddleware...))
+		mux.Handle("PUT /api/v1/admin/patients/{id}", middleware.Apply(http.HandlerFunc(deps.Admin.UpdatePatient), adminMiddleware...))
+		mux.Handle("GET /api/v1/admin/patients/{id}/consent", middleware.Apply(http.HandlerFunc(deps.Admin.GetConsentState), adminMiddleware...))
+		mux.Handle("PUT /api/v1/admin/patients/{id}/consent", middleware.Apply(http.HandlerFunc(deps.Admin.PutConsentState), adminMiddleware...))
+		mux.Handle("POST /api/v1/admin/patients/{id}/pause", middleware.Apply(http.HandlerFunc(deps.Admin.PausePatient), adminMiddleware...))
+		mux.Handle("DELETE /api/v1/admin/patients/{id}/pause", middleware.Apply(http.HandlerFunc(deps.Admin.UnpausePatient), adminMiddleware...))
+		mux.Handle("GET /api/v1/admin/call-templates", middleware.Apply(http.HandlerFunc(deps.Admin.ListCallTemplates), adminMiddleware...))
+		mux.Handle("GET /api/v1/admin/patients/{id}/dashboard", middleware.Apply(http.HandlerFunc(deps.Admin.GetDashboard), adminMiddleware...))
+		mux.Handle("POST /api/v1/admin/patients/{id}/calls", middleware.Apply(http.HandlerFunc(deps.Admin.CreateCall), adminMiddleware...))
+		mux.Handle("GET /api/v1/admin/calls/{id}", middleware.Apply(http.HandlerFunc(deps.Admin.GetCall), adminMiddleware...))
+		mux.Handle("POST /api/v1/admin/calls/{id}/analyze", middleware.Apply(http.HandlerFunc(deps.Admin.AnalyzeCall), adminMiddleware...))
+		mux.Handle("GET /api/v1/admin/calls/{id}/analysis", middleware.Apply(http.HandlerFunc(deps.Admin.GetCallAnalysis), adminMiddleware...))
+		mux.Handle("GET /api/v1/admin/patients/{id}/next-call", middleware.Apply(http.HandlerFunc(deps.Admin.GetNextCallPlan), adminMiddleware...))
+		mux.Handle("PUT /api/v1/admin/patients/{id}/next-call", middleware.Apply(http.HandlerFunc(deps.Admin.PutNextCallPlan), adminMiddleware...))
+	}
 
 	return middleware.Apply(
 		mux,
