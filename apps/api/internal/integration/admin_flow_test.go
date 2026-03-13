@@ -95,7 +95,14 @@ func TestAdminCaregiverFlowWithVoiceLifecycleAndAnalysis(t *testing.T) {
 		"username": cfg.AdminUsername,
 		"password": cfg.AdminPassword,
 	}
+	assertStatusWithOrigin(t, client, http.MethodPost, server.URL+"/api/v1/admin/session/login", loginPayload, "https://evil.example", http.StatusForbidden)
 	doJSON(t, client, http.MethodPost, server.URL+"/api/v1/admin/session/login", loginPayload, http.StatusOK, nil)
+
+	assertStatusWithOrigin(t, client, http.MethodPost, server.URL+"/api/v1/admin/caregivers", map[string]any{
+		"displayName": "Blocked Caregiver",
+		"email":       "blocked@example.com",
+		"timezone":    "America/Detroit",
+	}, "https://evil.example", http.StatusForbidden)
 
 	var caregiver admin.Caregiver
 	doJSON(t, client, http.MethodPost, server.URL+"/api/v1/admin/caregivers", map[string]any{
@@ -408,6 +415,17 @@ func assertStatus(t *testing.T, client *http.Client, method string, targetURL st
 	}
 }
 
+func assertStatusWithOrigin(t *testing.T, client *http.Client, method string, targetURL string, body any, origin string, expectedStatus int) {
+	t.Helper()
+	res := doRequestWithOrigin(t, client, method, targetURL, body, origin)
+	defer res.Body.Close()
+	if res.StatusCode != expectedStatus {
+		rawBody := new(strings.Builder)
+		_, _ = io.Copy(rawBody, res.Body)
+		t.Fatalf("expected %d from %s %s with origin %s, got %d: %s", expectedStatus, method, targetURL, origin, res.StatusCode, rawBody.String())
+	}
+}
+
 func doRequest(t *testing.T, client *http.Client, method string, targetURL string, body any) *http.Response {
 	t.Helper()
 
@@ -424,6 +442,34 @@ func doRequest(t *testing.T, client *http.Client, method string, targetURL strin
 	if err != nil {
 		t.Fatalf("http.NewRequest: %v", err)
 	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("client.Do: %v", err)
+	}
+	return res
+}
+
+func doRequestWithOrigin(t *testing.T, client *http.Client, method string, targetURL string, body any, origin string) *http.Response {
+	t.Helper()
+
+	var requestBody io.Reader
+	if body != nil {
+		payload, err := json.Marshal(body)
+		if err != nil {
+			t.Fatalf("json.Marshal request: %v", err)
+		}
+		requestBody = bytes.NewReader(payload)
+	}
+
+	req, err := http.NewRequest(method, targetURL, requestBody)
+	if err != nil {
+		t.Fatalf("http.NewRequest: %v", err)
+	}
+	req.Header.Set("Origin", origin)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}

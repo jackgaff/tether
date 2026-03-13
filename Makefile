@@ -1,13 +1,18 @@
-COMPOSE := docker compose
+COMPOSE ?= docker compose
 .DEFAULT_GOAL := help
 
-.PHONY: help init install check start stop status up down restart rebuild build logs ps db-reset clean api-logs web-logs db-logs prompt-test prompt-test-logs
+.PHONY: help init install check check-api check-web check-test test-api-integration compose-config start stop status up down restart rebuild build logs ps db-reset clean api-logs web-logs db-logs prompt-test prompt-test-logs prompt-test-down
 
 help:
 	@printf "Available targets:\n"
 	@printf "  make init      Create .env from .env.example if needed and install deps\n"
 	@printf "  make install   Install Bun workspace dependencies with the lockfile\n"
 	@printf "  make check     Run the repo verification suite\n"
+	@printf "  make check-api Run Go tests, race detector, and go vet\n"
+	@printf "  make check-web Typecheck and build the main web app\n"
+	@printf "  make check-test Typecheck and build the prompt lab app\n"
+	@printf "  make test-api-integration Run Postgres-backed API integration tests\n"
+	@printf "  make compose-config Validate docker compose configuration\n"
 	@printf "  make start     Start db, api, and web in the background\n"
 	@printf "  make stop      Stop the full stack\n"
 	@printf "  make status    Show service status\n"
@@ -32,6 +37,21 @@ install:
 
 check:
 	bun run check
+
+check-api:
+	bun run check:api
+
+check-web:
+	bun run check:web
+
+check-test:
+	bun run check:test
+
+test-api-integration:
+	TEST_DATABASE_URL=$${TEST_DATABASE_URL:-postgres://postgres:postgres@localhost:5433/nova_echoes?sslmode=disable} bun run test:api:integration
+
+compose-config:
+	$(COMPOSE) config > /dev/null
 
 start: up
 
@@ -73,6 +93,9 @@ prompt-test:
 
 prompt-test-logs:
 	$(COMPOSE) logs -f test
+
+prompt-test-down:
+	$(COMPOSE) stop test
 
 db-reset:
 	$(COMPOSE) down

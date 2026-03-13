@@ -1,12 +1,13 @@
 # Nova Echoes
 
-Hackathon starter for a voice-first support app aimed at older adults who live
-alone and benefit from gentle, recurring check-ins.
+Hackathon app for a caregiver-controlled voice companion that places short,
+structured check-in calls, captures transcripts, runs post-call analysis, and
+lets a caregiver review the next recommended call.
 
 The repo is set up to help a small team move quickly without blurring concerns:
 
 - Go API with centralized config loading and small module boundaries
-- Bun-managed React + Vite frontend with typed API contracts
+- Bun-managed React + Vite minimal admin frontend with typed API contracts
 - Separate Bun-managed prompt lab app for barebones voice prompt testing
 - Docker Compose stack for Postgres, API, and web
 - One shared root `.env.example`, plus optional `.env.local` overrides
@@ -96,12 +97,16 @@ Use this when you want fast iteration with native processes on your machine.
    ```
 
 5. Open `http://localhost:5173` for the main app or `http://localhost:5174` for the prompt lab.
-   The prompt lab is intentionally barebones: pick a voice, paste a starting prompt,
-   press start, talk through the test call, stop it, and review saved past conversations.
+   The main app is intentionally minimal: log in, create/load a caregiver and
+   patient, grant consent, create a browser call, complete it, run analysis,
+   and review the next-call recommendation.
+   The prompt lab remains a separate barebones voice sandbox for prompt tuning:
+   pick a voice, paste a starting prompt, press start, talk through the test call,
+   stop it, and review saved past conversations.
 
 ## Docker Workflow
 
-Use this when you want the full stack with one command.
+Use this when you want the development stack with one command.
 
 ```bash
 make up
@@ -148,6 +153,9 @@ Notes:
   `api` container. The compose setup now mounts `${HOME}/.aws` read-only and
   passes through standard `AWS_*` credentials/profile variables from your shell.
   If you change AWS auth or voice code, restart with `make rebuild`.
+- The compose stack explicitly targets each Dockerfile's `dev` stage so local
+  file watching and live reload still work. The Dockerfiles also ship leaner
+  `runtime` stages for inspection or later deployment work.
 - The web container only receives `VITE_*` variables. Backend-only values stay
   scoped to the API service.
 - The Compose web image installs dependencies from `bun.lock` during build, so
@@ -174,6 +182,9 @@ Backend/runtime variables:
 - `NOVA_ANALYSIS_MODEL_ID`
 - `ALLOWED_FRONTEND_ORIGINS`
 - `VOICE_LAB_EXPORT_DIR`
+- `ADMIN_USERNAME`
+- `ADMIN_PASSWORD`
+- `ADMIN_SESSION_SECRET`
 
 Frontend variables:
 
@@ -185,6 +196,11 @@ Guidance:
 - Keep browser-facing routes public by default.
 - Treat `INTERNAL_API_KEY` as server-to-server only. Do not expose it to the
   browser.
+- The main admin UI uses cookie-session auth on `/api/v1/admin/*`. Browser
+  requests must send credentials, and admin write routes only trust configured
+  frontend origins.
+- Demo admin credentials are fine for local development, but production config
+  rejects the checked-in demo defaults and wildcard admin origins.
 - When wiring Amazon Nova or Bedrock, use normal AWS credentials or IAM-based
   auth rather than inventing your own credential flow.
 
@@ -193,7 +209,7 @@ Guidance:
 Run the same checks locally that CI runs:
 
 ```bash
-bun run check
+make check
 ```
 
 That currently does:
@@ -211,8 +227,8 @@ For the Postgres-backed API integration suite, run:
 TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5433/nova_echoes?sslmode=disable bun run test:api:integration
 ```
 
-CI lives at `.github/workflows/ci.yml` and runs on pushes to `main` plus pull
-requests.
+CI lives at `.github/workflows/ci.yml` and runs on pushes to `main`, pull
+requests, and manual dispatches.
 
 ## API Surface
 
@@ -227,6 +243,27 @@ Implemented routes:
 - `PUT /api/v1/patients/{id}/preferences`
 - `POST /api/v1/voice/sessions`
 - `GET /api/v1/voice/sessions/{id}/stream` (WebSocket upgrade)
+- `POST /api/v1/admin/session/login`
+- `GET /api/v1/admin/session`
+- `POST /api/v1/admin/session/logout`
+- `POST /api/v1/admin/caregivers`
+- `GET /api/v1/admin/caregivers/{id}`
+- `PUT /api/v1/admin/caregivers/{id}`
+- `POST /api/v1/admin/patients`
+- `GET /api/v1/admin/patients/{id}`
+- `PUT /api/v1/admin/patients/{id}`
+- `GET /api/v1/admin/patients/{id}/consent`
+- `PUT /api/v1/admin/patients/{id}/consent`
+- `POST /api/v1/admin/patients/{id}/pause`
+- `DELETE /api/v1/admin/patients/{id}/pause`
+- `GET /api/v1/admin/call-templates`
+- `GET /api/v1/admin/patients/{id}/dashboard`
+- `POST /api/v1/admin/patients/{id}/calls`
+- `GET /api/v1/admin/calls/{id}`
+- `POST /api/v1/admin/calls/{id}/analyze`
+- `GET /api/v1/admin/calls/{id}/analysis`
+- `GET /api/v1/admin/patients/{id}/next-call`
+- `PUT /api/v1/admin/patients/{id}/next-call`
 - `GET /api/v1/check-ins`
 - `POST /api/v1/check-ins`
 
@@ -238,10 +275,15 @@ Voice transcript persistence:
 - FINAL transcript turns are stored in Postgres table `voice_transcript_turns`
 - voice session metadata is stored in `voice_sessions`
 - usage events are stored in `voice_usage_events`
+- caregiver/patient/admin workflow state is stored in the phase-1 MVP tables
+  added by migration `0003_phase1_admin_contract.sql`
 - prompt-lab sessions also export JSON and Markdown artifacts to
   `VOICE_LAB_EXPORT_DIR` which defaults to `apps/api/testdata/voice-lab`
 - `GET /api/v1/voice/lab/conversations` reads those saved JSON artifacts back for the
   standalone prompt lab history view
+
+`check-ins` remain in the repo as a lightweight legacy/demo surface while the
+caregiver-admin workflow becomes the primary product path.
 
 Example requests:
 

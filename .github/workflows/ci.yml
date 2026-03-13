@@ -1,14 +1,23 @@
 name: CI
 
 on:
+  workflow_dispatch:
   pull_request:
   push:
     branches:
       - main
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:16-alpine
@@ -61,12 +70,12 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Verify repo checks
-        run: bun run check
+        run: make check
 
       - name: Verify Postgres-backed API integration tests
         env:
           TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5433/nova_echoes?sslmode=disable
-        run: bun run test:api:integration
+        run: make test-api-integration
 
       - name: Validate Docker Compose config
-        run: docker compose config > /dev/null
+        run: make compose-config

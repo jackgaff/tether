@@ -173,6 +173,51 @@ func TestLoadFromRequiresAPIKeyWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestLoadFromRejectsProductionDemoAdminDefaults(t *testing.T) {
+	resetManagedEnv(t)
+
+	baseDir := t.TempDir()
+	writeFile(t, filepath.Join(baseDir, ".env"), strings.Join([]string{
+		"APP_ENV=production",
+		"AUTH_MODE=off",
+		"ADMIN_USERNAME=demo-admin",
+		"ADMIN_PASSWORD=demo-admin-password",
+		"ADMIN_SESSION_SECRET=demo-admin-session-secret-change-me",
+	}, "\n"))
+
+	_, err := config.LoadFrom(baseDir)
+	if err == nil {
+		t.Fatal("expected production demo admin defaults to be rejected")
+	}
+
+	if !strings.Contains(err.Error(), "must not use demo defaults") {
+		t.Fatalf("expected demo defaults error, got %v", err)
+	}
+}
+
+func TestLoadFromRejectsWildcardOriginsInProduction(t *testing.T) {
+	resetManagedEnv(t)
+
+	baseDir := t.TempDir()
+	writeFile(t, filepath.Join(baseDir, ".env"), strings.Join([]string{
+		"APP_ENV=production",
+		"AUTH_MODE=off",
+		"ADMIN_USERNAME=prod-admin",
+		"ADMIN_PASSWORD=not-the-demo-password",
+		"ADMIN_SESSION_SECRET=production-secret-value",
+		"ALLOWED_FRONTEND_ORIGINS=*",
+	}, "\n"))
+
+	_, err := config.LoadFrom(baseDir)
+	if err == nil {
+		t.Fatal("expected wildcard origin to be rejected in production")
+	}
+
+	if !strings.Contains(err.Error(), "cannot contain * in production") {
+		t.Fatalf("expected wildcard origin error, got %v", err)
+	}
+}
+
 func resetManagedEnv(t *testing.T) {
 	t.Helper()
 

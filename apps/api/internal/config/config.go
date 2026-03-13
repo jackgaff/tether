@@ -138,8 +138,22 @@ func LoadFrom(baseDir string) (Config, error) {
 	if len(strings.TrimSpace(cfg.AdminSessionSecret)) < 16 {
 		return Config{}, errors.New("ADMIN_SESSION_SECRET must be at least 16 characters")
 	}
+	if strings.EqualFold(strings.TrimSpace(cfg.AppEnv), "production") {
+		if slices.Contains(cfg.AllowedFrontendOrigins, "*") {
+			return Config{}, errors.New("ALLOWED_FRONTEND_ORIGINS cannot contain * in production")
+		}
+		if usesDemoAdminDefaults(cfg) {
+			return Config{}, errors.New("production admin credentials and session secret must not use demo defaults")
+		}
+	}
 
 	return cfg, nil
+}
+
+func usesDemoAdminDefaults(cfg Config) bool {
+	return strings.TrimSpace(cfg.AdminUsername) == "demo-admin" ||
+		strings.TrimSpace(cfg.AdminPassword) == "demo-admin-password" ||
+		strings.Contains(strings.ToLower(strings.TrimSpace(cfg.AdminSessionSecret)), "change-me")
 }
 
 func getEnv(key, fallback string) string {
