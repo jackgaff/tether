@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { startMicrophoneStream, type MicrophoneStream } from "../audio";
 import { buildVoiceWebSocketUrl } from "../api/client";
 import type { VoiceSessionDescriptor } from "../api/contracts";
-import { ErrorText } from "./ErrorText";
 
 type LiveTurn = {
   id: string;
@@ -317,42 +316,79 @@ export function LiveCallPanel({
     }
   }
 
-  return (
-    <div>
-      <p>
-        <strong>Status:</strong> {statusText}
-      </p>
-      {voiceSession ? (
-        <p>
-          <strong>Session ID:</strong> {voiceSession.id}
-        </p>
-      ) : null}
-      <ErrorText message={errorText} />
-      <button
-        type="button"
-        onClick={() => void handleStop()}
-        disabled={!voiceSession || runState === "idle" || runState === "stopping"}
-      >
-        {runState === "stopping"
-          ? "Stopping..."
-          : runState === "error"
-            ? "Reset browser call"
-            : "Stop browser call"}
-      </button>
+  const isLive = runState === "live";
+  const isBusy = runState === "starting" || runState === "stopping";
 
-      {turns.length === 0 ? (
-        <p>No final transcript turns captured yet.</p>
-      ) : (
-        <ul className="transcript-list">
-          {turns.map((turn) => (
-            <li key={turn.id}>
-              <strong>{turn.direction}</strong> ({turn.modality})
-              {turn.occurredAt ? ` @ ${formatDateTime(turn.occurredAt)}` : ""}
-              <div>{turn.text}</div>
-            </li>
-          ))}
-        </ul>
+  return (
+    <div className="space-y-4">
+      {/* Status bar */}
+      <div className="bg-white border border-gray-200 rounded-xl p-4 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-2.5">
+          <span
+            className={`w-2 h-2 rounded-full flex-shrink-0 ${
+              isLive ? "bg-green-400 animate-pulse" : isBusy ? "bg-amber-400" : runState === "error" ? "bg-red-400" : "bg-gray-300"
+            }`}
+          />
+          <p className="text-sm text-gray-700">{statusText}</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void handleStop()}
+          disabled={!voiceSession || runState === "idle" || runState === "stopping"}
+          className="flex-shrink-0 px-3 py-1.5 text-sm font-medium rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-40"
+        >
+          {runState === "stopping" ? "Stopping..." : runState === "error" ? "Reset" : "End call"}
+        </button>
+      </div>
+
+      {errorText && (
+        <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700">
+          {errorText}
+        </div>
       )}
+
+      {/* Transcript */}
+      <div className="bg-white border border-gray-200 rounded-xl p-5 min-h-48">
+        <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-4">
+          Live Transcript
+        </p>
+        {turns.length === 0 ? (
+          <p className="text-sm text-gray-400 italic">Waiting for conversation to begin...</p>
+        ) : (
+          <div className="space-y-4">
+            {turns.map((turn) => (
+              <div
+                key={turn.id}
+                className={`flex gap-3 ${turn.direction === "user" ? "flex-row-reverse" : ""}`}
+              >
+                <div
+                  className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-semibold ${
+                    turn.direction === "assistant" ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"
+                  }`}
+                >
+                  {turn.direction === "assistant" ? "AI" : "P"}
+                </div>
+                <div className={`flex-1 max-w-[80%] flex flex-col ${turn.direction === "user" ? "items-end" : ""}`}>
+                  <div
+                    className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+                      turn.direction === "assistant"
+                        ? "bg-gray-100 text-gray-800"
+                        : "bg-gray-900 text-white"
+                    }`}
+                  >
+                    {turn.text}
+                  </div>
+                  {turn.occurredAt && (
+                    <p className="text-xs text-gray-400 mt-1 mx-1">
+                      {formatDateTime(turn.occurredAt)}
+                    </p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

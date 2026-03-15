@@ -57,6 +57,10 @@ export function updateCaregiver(id: string, input: CaregiverInput): Promise<Care
   });
 }
 
+export function listPatients(): Promise<Patient[]> {
+  return request<Patient[]>("/api/v1/admin/patients");
+}
+
 export function createPatient(input: PatientInput): Promise<Patient> {
   return request<Patient>("/api/v1/admin/patients", {
     method: "POST",

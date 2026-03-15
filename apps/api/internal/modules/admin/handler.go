@@ -157,6 +157,18 @@ func (h *Handler) CreatePatient(w http.ResponseWriter, r *http.Request) {
 	respond.JSON(w, http.StatusCreated, patient, nil)
 }
 
+func (h *Handler) ListPatients(w http.ResponseWriter, r *http.Request) {
+	patients, err := h.store.ListPatients(r.Context())
+	if err != nil {
+		respond.Error(w, http.StatusInternalServerError, "store_error", "Could not list patients.")
+		return
+	}
+	if patients == nil {
+		patients = []Patient{}
+	}
+	respond.JSON(w, http.StatusOK, patients, nil)
+}
+
 func (h *Handler) GetPatient(w http.ResponseWriter, r *http.Request) {
 	patientID := strings.TrimSpace(r.PathValue("id"))
 	patient, ok, err := h.store.GetPatient(r.Context(), patientID)
