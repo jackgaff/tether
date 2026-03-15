@@ -86,6 +86,139 @@ func summarizeAnalysisForCaregiver(payload AnalysisPayload) string {
 	return strings.TrimSpace(payload.Summary)
 }
 
+func hydrateLegacyAnalysisPayload(payload *AnalysisPayload) {
+	if payload == nil {
+		return
+	}
+
+	if strings.TrimSpace(payload.DashboardSummary) == "" {
+		payload.DashboardSummary = summarizeAnalysisForDashboard(*payload)
+	}
+	if strings.TrimSpace(payload.CaregiverSummary) == "" {
+		payload.CaregiverSummary = summarizeAnalysisForCaregiver(*payload)
+	}
+	if payload.PatientState == nil {
+		state := deriveLegacyPatientState(*payload)
+		payload.PatientState = &state
+	}
+
+	for index := range payload.RiskFlags {
+		if strings.TrimSpace(payload.RiskFlags[index].WhyItMatters) == "" {
+			payload.RiskFlags[index].WhyItMatters = chooseString(
+				payload.RiskFlags[index].Reason,
+				chooseString(payload.RiskFlags[index].Evidence, payload.RiskFlags[index].FlagType),
+			)
+		}
+	}
+}
+
+func hydrateLegacyRiskFlags(flags []RiskFlag) {
+	for index := range flags {
+		if strings.TrimSpace(flags[index].WhyItMatters) == "" {
+			flags[index].WhyItMatters = chooseString(
+				flags[index].Reason,
+				chooseString(flags[index].Evidence, flags[index].FlagType),
+			)
+		}
+	}
+}
+
+func deriveLegacyPatientState(payload AnalysisPayload) LegacyPatientState {
+	orientation := "unclear"
+	if hasLegacyKeyword(payload, "orientation", "confus", "repeat") {
+		orientation = "mixed"
+	}
+	if payload.Screening != nil && payload.Screening.ScreeningCompletionStatus == ScreeningCompletionComplete && orientation == "unclear" {
+		orientation = "mixed"
+	}
+
+	mood := "neutral"
+	switch {
+	case payload.EscalationLevel == EscalationCaregiverNow || payload.EscalationLevel == EscalationClinicalReview:
+		mood = "distressed"
+	case payload.Reminiscence != nil && len(payload.Reminiscence.DistressOrTriggerSignals) > 0:
+		mood = "distressed"
+	case payload.Reminiscence != nil && len(payload.Reminiscence.PositiveEngagementSignals) > 0:
+		mood = "positive"
+	case payload.CheckIn != nil && hasAnyMoodKeyword(payload.CheckIn.MoodSignals, "anxious", "worried", "sad", "upset"):
+		mood = "anxious"
+	case payload.CheckIn != nil && hasAnyMoodKeyword(payload.CheckIn.MoodSignals, "good", "calm", "happy", "positive", "steady"):
+		mood = "positive"
+	case strings.TrimSpace(payload.Summary) == "":
+		mood = "unclear"
+	}
+
+	engagement := "medium"
+	switch {
+	case payload.Reminiscence != nil && len(payload.Reminiscence.PositiveEngagementSignals) > 0:
+		engagement = "high"
+	case payload.CheckIn != nil && payload.CheckIn.FollowUpRequestDetected:
+		engagement = "high"
+	case strings.TrimSpace(payload.Summary) == "" && len(payload.SalientEvidence) == 0:
+		engagement = "low"
+	}
+
+	confidence := 0.5
+	switch {
+	case payload.FollowUpIntent.Confidence > 0:
+		confidence = payload.FollowUpIntent.Confidence
+	case len(payload.RiskFlags) > 0 && payload.RiskFlags[0].Confidence > 0:
+		confidence = payload.RiskFlags[0].Confidence
+	}
+
+	return LegacyPatientState{
+		Orientation: orientation,
+		Mood:        mood,
+		Engagement:  engagement,
+		Confidence:  confidence,
+	}
+}
+
+func hasLegacyKeyword(payload AnalysisPayload, keywords ...string) bool {
+	for _, flag := range payload.RiskFlags {
+		if containsAnySubstring(flag.FlagType, keywords...) || containsAnySubstring(flag.Reason, keywords...) || containsAnySubstring(flag.Evidence, keywords...) {
+			return true
+		}
+	}
+	if containsAnySubstring(payload.Summary, keywords...) || containsAnySubstring(payload.CaregiverReviewReason, keywords...) {
+		return true
+	}
+	return false
+}
+
+func hasAnyMoodKeyword(values []string, keywords ...string) bool {
+	for _, value := range values {
+		if containsAnySubstring(value, keywords...) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsAnySubstring(value string, needles ...string) bool {
+	lowerValue := strings.ToLower(strings.TrimSpace(value))
+	if lowerValue == "" {
+		return false
+	}
+	for _, needle := range needles {
+		if strings.Contains(lowerValue, strings.ToLower(strings.TrimSpace(needle))) {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeRequestedCallTrigger(trigger string) string {
+	switch strings.TrimSpace(trigger) {
+	case "", CallTriggerCaregiverRequested, CallTriggerLegacyManual:
+		return CallTriggerCaregiverRequested
+	case CallTriggerFollowUpRecommendation, CallTriggerLegacyApprovedNextCall:
+		return CallTriggerFollowUpRecommendation
+	default:
+		return strings.TrimSpace(trigger)
+	}
+}
+
 func computeNextDueAt(reference time.Time, timezone string, preferredWeekday int, preferredLocalTime string, cadence string) *time.Time {
 	location, err := time.LoadLocation(strings.TrimSpace(timezone))
 	if err != nil {

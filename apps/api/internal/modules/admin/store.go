@@ -1007,14 +1007,16 @@ func (s *PostgresStore) GetAnalysisRecord(ctx context.Context, callRunID string)
 		record.Result.RiskFlags = make([]AnalysisRiskFlag, 0, len(riskFlags))
 		for _, flag := range riskFlags {
 			record.Result.RiskFlags = append(record.Result.RiskFlags, AnalysisRiskFlag{
-				FlagType:   flag.FlagType,
-				Severity:   flag.Severity,
-				Evidence:   flag.Evidence,
-				Reason:     flag.Reason,
-				Confidence: flag.Confidence,
+				FlagType:     flag.FlagType,
+				Severity:     flag.Severity,
+				Evidence:     flag.Evidence,
+				Reason:       flag.Reason,
+				WhyItMatters: flag.WhyItMatters,
+				Confidence:   flag.Confidence,
 			})
 		}
 	}
+	hydrateLegacyAnalysisPayload(&record.Result)
 
 	return record, true, nil
 }
@@ -1611,6 +1613,7 @@ func (s *PostgresStore) listRiskFlags(ctx context.Context, analysisResultID stri
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate risk flags: %w", err)
 	}
+	hydrateLegacyRiskFlags(flags)
 
 	return flags, nil
 }

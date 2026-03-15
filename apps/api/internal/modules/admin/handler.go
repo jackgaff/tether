@@ -372,6 +372,7 @@ func (h *Handler) CreateCall(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusBadRequest, "validation_error", "channel must be browser or connect.")
 		return
 	}
+	input.TriggerType = normalizeRequestedCallTrigger(input.TriggerType)
 	if trigger := strings.TrimSpace(input.TriggerType); trigger != "" && !contains(validCallTriggersForRequests(), trigger) {
 		respond.Error(w, http.StatusBadRequest, "validation_error", "triggerType must be caregiver_requested or follow_up_recommendation.")
 		return

@@ -31,6 +31,8 @@ const (
 	CallTriggerCaregiverRequested     = "caregiver_requested"
 	CallTriggerScheduled              = "scheduled"
 	CallTriggerFollowUpRecommendation = "follow_up_recommendation"
+	CallTriggerLegacyManual           = "manual"
+	CallTriggerLegacyApprovedNextCall = "approved_next_call"
 )
 
 const (
@@ -257,11 +259,12 @@ type SalientEvidence struct {
 }
 
 type AnalysisRiskFlag struct {
-	FlagType   string  `json:"flagType"`
-	Severity   string  `json:"severity"`
-	Evidence   string  `json:"evidence,omitempty"`
-	Reason     string  `json:"reason,omitempty"`
-	Confidence float64 `json:"confidence"`
+	FlagType     string  `json:"flagType"`
+	Severity     string  `json:"severity"`
+	Evidence     string  `json:"evidence,omitempty"`
+	Reason       string  `json:"reason,omitempty"`
+	WhyItMatters string  `json:"whyItMatters,omitempty"`
+	Confidence   float64 `json:"confidence"`
 }
 
 type FollowUpIntent struct {
@@ -304,6 +307,13 @@ type ReminiscenceAnalysis struct {
 	FutureReminiscenceCandidates []string `json:"futureReminiscenceCandidates"`
 }
 
+type LegacyPatientState struct {
+	Orientation string  `json:"orientation"`
+	Mood        string  `json:"mood"`
+	Engagement  string  `json:"engagement"`
+	Confidence  float64 `json:"confidence"`
+}
+
 type AnalysisPayload struct {
 	Summary                string                  `json:"summary"`
 	SalientEvidence        []SalientEvidence       `json:"salientEvidence"`
@@ -315,6 +325,9 @@ type AnalysisPayload struct {
 	Screening              *ScreeningAnalysis      `json:"screening,omitempty"`
 	CheckIn                *CheckInAnalysis        `json:"checkIn,omitempty"`
 	Reminiscence           *ReminiscenceAnalysis   `json:"reminiscence,omitempty"`
+	DashboardSummary       string                  `json:"dashboard_summary,omitempty"`
+	CaregiverSummary       string                  `json:"caregiver_summary,omitempty"`
+	PatientState           *LegacyPatientState     `json:"patient_state,omitempty"`
 }
 
 type RiskFlag struct {
@@ -324,6 +337,7 @@ type RiskFlag struct {
 	Severity         string    `json:"severity"`
 	Evidence         string    `json:"evidence,omitempty"`
 	Reason           string    `json:"reason,omitempty"`
+	WhyItMatters     string    `json:"whyItMatters,omitempty"`
 	Confidence       float64   `json:"confidence"`
 	CreatedAt        time.Time `json:"createdAt"`
 }

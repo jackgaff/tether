@@ -210,6 +210,7 @@ export interface StructuredRiskFlag {
   severity: "info" | "watch" | "urgent";
   evidence?: string;
   reason?: string;
+  whyItMatters?: string;
   confidence: number;
 }
 
@@ -268,6 +269,14 @@ export interface AnalysisPayload {
   screening?: ScreeningAnalysis;
   checkIn?: CheckInAnalysis;
   reminiscence?: ReminiscenceAnalysis;
+  dashboard_summary?: string;
+  caregiver_summary?: string;
+  patient_state: {
+    orientation: string;
+    mood: string;
+    engagement: string;
+    confidence: number;
+  };
 }
 
 export interface RiskFlag {
@@ -277,6 +286,7 @@ export interface RiskFlag {
   severity: "info" | "watch" | "urgent";
   evidence?: string;
   reason?: string;
+  whyItMatters?: string;
   confidence: number;
   createdAt: string;
 }

@@ -73,10 +73,7 @@ func (s *Service) CreateCall(ctx context.Context, patientID string, input Create
 		return CreateCallResponse{}, newValidationError("channel must be browser or connect")
 	}
 
-	triggerType := strings.TrimSpace(input.TriggerType)
-	if triggerType == "" {
-		triggerType = CallTriggerCaregiverRequested
-	}
+	triggerType := normalizeRequestedCallTrigger(input.TriggerType)
 	if !contains(validCallTriggersForRequests(), triggerType) {
 		return CreateCallResponse{}, newValidationError("triggerType must be caregiver_requested or follow_up_recommendation")
 	}
