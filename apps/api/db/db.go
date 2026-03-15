@@ -117,10 +117,13 @@ func ResetForTest(ctx context.Context, db *sql.DB) error {
 	}
 
 	statements := []string{
+		`truncate table analysis_jobs cascade`,
 		`truncate table risk_flags restart identity cascade`,
 		`truncate table next_call_plans cascade`,
 		`truncate table analysis_results cascade`,
 		`truncate table call_runs cascade`,
+		`truncate table screening_schedules cascade`,
+		`truncate table patient_memory_profiles cascade`,
 		`truncate table patient_consent_state cascade`,
 		`truncate table patients cascade`,
 		`truncate table caregivers cascade`,

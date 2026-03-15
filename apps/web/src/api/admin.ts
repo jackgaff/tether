@@ -1,6 +1,7 @@
 import { request } from "./client";
 import type {
   AdminSession,
+  AnalysisJob,
   AnalysisRecord,
   CallRunDetail,
   CallTemplate,
@@ -16,6 +17,8 @@ import type {
   PausePatientInput,
   Patient,
   PatientInput,
+  ScreeningSchedule,
+  ScreeningScheduleInput,
   UpdateNextCallInput
 } from "./contracts";
 
@@ -70,6 +73,25 @@ export function updatePatient(id: string, input: PatientInput): Promise<Patient>
     method: "PUT",
     body: JSON.stringify(input)
   });
+}
+
+export function getScreeningSchedule(patientId: string): Promise<ScreeningSchedule> {
+  return request<ScreeningSchedule>(
+    `/api/v1/admin/patients/${encodeURIComponent(patientId)}/screening-schedule`
+  );
+}
+
+export function updateScreeningSchedule(
+  patientId: string,
+  input: ScreeningScheduleInput
+): Promise<ScreeningSchedule> {
+  return request<ScreeningSchedule>(
+    `/api/v1/admin/patients/${encodeURIComponent(patientId)}/screening-schedule`,
+    {
+      method: "PUT",
+      body: JSON.stringify(input)
+    }
+  );
 }
 
 export function getConsent(patientId: string): Promise<ConsentState> {
@@ -128,13 +150,39 @@ export function getCall(callId: string): Promise<CallRunDetail> {
   return request<CallRunDetail>(`/api/v1/admin/calls/${encodeURIComponent(callId)}`);
 }
 
-export function analyzeCall(callId: string): Promise<AnalysisRecord> {
-  return request<AnalysisRecord>(
+export function enqueueCallAnalysis(callId: string): Promise<AnalysisJob> {
+  return request<AnalysisJob>(
     `/api/v1/admin/calls/${encodeURIComponent(callId)}/analyze`,
     {
       method: "POST"
     }
   );
+}
+
+export function getAnalysisJob(callId: string): Promise<AnalysisJob> {
+  return request<AnalysisJob>(
+    `/api/v1/admin/calls/${encodeURIComponent(callId)}/analysis-job`
+  );
+}
+
+export async function analyzeCall(callId: string): Promise<AnalysisRecord> {
+  const normalizedCallId = encodeURIComponent(callId);
+  await request<AnalysisJob>(`/api/v1/admin/calls/${normalizedCallId}/analyze`, {
+    method: "POST"
+  });
+
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    const job = await getAnalysisJob(callId);
+    if (job.status === "succeeded") {
+      return getCallAnalysis(callId);
+    }
+    if (job.status === "failed") {
+      throw new Error(job.lastError || "Call analysis failed.");
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 500));
+  }
+
+  throw new Error("Call analysis did not finish before the timeout.");
 }
 
 export function getCallAnalysis(callId: string): Promise<AnalysisRecord> {

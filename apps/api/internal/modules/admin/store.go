@@ -20,6 +20,10 @@ type Store interface {
 	CreatePatient(ctx context.Context, input CreatePatientRequest) (Patient, error)
 	GetPatient(ctx context.Context, patientID string) (Patient, bool, error)
 	UpdatePatient(ctx context.Context, patientID string, input UpdatePatientRequest) (Patient, error)
+	GetScreeningSchedule(ctx context.Context, patientID string) (ScreeningSchedule, bool, error)
+	PutScreeningSchedule(ctx context.Context, patientID string, input ScreeningScheduleInput, now time.Time) (ScreeningSchedule, error)
+	ListDueScreeningSchedules(ctx context.Context, now time.Time, limit int) ([]ScreeningSchedule, error)
+	CreateScheduledScreeningCallRun(ctx context.Context, schedule ScreeningSchedule, now time.Time) (CallRun, bool, error)
 	GetConsentState(ctx context.Context, patientID string) (ConsentState, bool, error)
 	PutConsentState(ctx context.Context, patientID string, input UpdateConsentRequest, now time.Time) (ConsentState, error)
 	SetPatientPause(ctx context.Context, patientID string, reason string, now time.Time) (Patient, error)
@@ -28,9 +32,14 @@ type Store interface {
 	GetCallTemplateByID(ctx context.Context, templateID string) (CallTemplate, bool, error)
 	ResolveActiveCallTemplateByType(ctx context.Context, callType string) (CallTemplate, error)
 	CreateCallRun(ctx context.Context, input CreateCallRunParams) (CallRun, error)
+	MarkCallRunFailed(ctx context.Context, callRunID, stopReason string, endedAt time.Time) error
 	GetCallRun(ctx context.Context, callRunID string) (CallRun, bool, error)
 	ListRecentCallRuns(ctx context.Context, patientID string, limit int) ([]CallRun, error)
 	ListTranscriptTurnsForCallRun(ctx context.Context, callRunID string) ([]CallTranscriptTurn, error)
+	GetAnalysisJob(ctx context.Context, callRunID string) (AnalysisJob, bool, error)
+	UpsertAnalysisJob(ctx context.Context, input UpsertAnalysisJobParams) (AnalysisJob, error)
+	ClaimNextAnalysisJob(ctx context.Context, now time.Time) (AnalysisJob, bool, error)
+	MarkAnalysisJobFailed(ctx context.Context, jobID, lastError string, now time.Time) error
 	GetAnalysisRecord(ctx context.Context, callRunID string) (AnalysisRecord, bool, error)
 	GetAnalysisPromptContext(ctx context.Context, callRunID string) (AnalysisPromptContext, error)
 	SaveAnalysisResult(ctx context.Context, input SaveAnalysisResultInput) (AnalysisRecord, error)
@@ -44,30 +53,41 @@ type PostgresStore struct {
 }
 
 type CreateCallRunParams struct {
-	PatientID    string
-	CaregiverID  string
-	CallTemplate CallTemplate
-	Channel      string
-	TriggerType  string
-	RequestedAt  time.Time
+	PatientID           string
+	CaregiverID         string
+	CallTemplate        CallTemplate
+	CallType            string
+	Channel             string
+	TriggerType         string
+	Status              string
+	RequestedAt         time.Time
+	ScheduleWindowStart *time.Time
+	ScheduleWindowEnd   *time.Time
+}
+
+type UpsertAnalysisJobParams struct {
+	CallRunID             string
+	Force                 bool
+	AnalysisPromptVersion string
+	AnalysisSchemaVersion string
+	ModelProvider         string
+	ModelName             string
+	Now                   time.Time
 }
 
 type SaveAnalysisResultInput struct {
-	CallRunID     string
-	PatientID     string
-	ModelID       string
-	SchemaVersion string
-	Result        AnalysisPayload
-	RiskFlags     []RiskFlagSeed
-	CreatedAt     time.Time
-}
-
-type RiskFlagSeed struct {
-	FlagType      string
-	Severity      string
-	EvidenceQuote string
-	WhyItMatters  string
-	Confidence    float64
+	CallRunID             string
+	PatientID             string
+	PatientTimezone       string
+	CallTemplateID        string
+	CallType              string
+	CallPromptVersion     string
+	AnalysisPromptVersion string
+	SchemaVersion         string
+	ModelProvider         string
+	ModelName             string
+	Result                AnalysisPayload
+	GeneratedAt           time.Time
 }
 
 type UpdateNextCallPlanStoreInput struct {
@@ -165,7 +185,7 @@ func (s *PostgresStore) CreatePatient(ctx context.Context, input CreatePatientRe
 		}
 	}()
 
-	row := tx.QueryRowContext(ctx, `
+	if _, execErr := tx.ExecContext(ctx, `
 		insert into patients (
 			id,
 			primary_caregiver_id,
@@ -180,36 +200,15 @@ func (s *PostgresStore) CreatePatient(ctx context.Context, input CreatePatientRe
 			topics_to_avoid,
 			updated_at
 		) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now())
-		returning
-			id,
-			primary_caregiver_id,
-			display_name,
-			preferred_name,
-			phone_e164,
-			timezone,
-			notes,
-			calling_state,
-			pause_reason,
-			paused_at,
-			routine_anchors,
-			favorite_topics,
-			calming_cues,
-			topics_to_avoid,
-			created_at,
-			updated_at
-	`, patientID, strings.TrimSpace(input.PrimaryCaregiverID), strings.TrimSpace(input.DisplayName), strings.TrimSpace(input.PreferredName), nullableString(input.PhoneE164), strings.TrimSpace(input.Timezone), nullableString(input.Notes), marshalStringList(input.RoutineAnchors), marshalStringList(input.FavoriteTopics), marshalStringList(input.CalmingCues), marshalStringList(input.TopicsToAvoid))
-
-	patient, scanErr := scanPatient(row)
-	if scanErr != nil {
-		if isUniqueViolation(scanErr) {
+	`, patientID, strings.TrimSpace(input.PrimaryCaregiverID), strings.TrimSpace(input.DisplayName), strings.TrimSpace(input.PreferredName), nullableString(input.PhoneE164), strings.TrimSpace(input.Timezone), nullableString(input.Notes), marshalStringList(input.RoutineAnchors), marshalStringList(input.FavoriteTopics), marshalStringList(input.CalmingCues), marshalStringList(input.TopicsToAvoid)); execErr != nil {
+		switch {
+		case isUniqueViolation(execErr):
 			err = ErrPatientAlreadyAssigned
-			return Patient{}, err
-		}
-		if isForeignKeyViolation(scanErr) {
+		case isForeignKeyViolation(execErr):
 			err = ErrCaregiverNotFound
-			return Patient{}, err
+		default:
+			err = fmt.Errorf("create patient: %w", execErr)
 		}
-		err = fmt.Errorf("create patient: %w", scanErr)
 		return Patient{}, err
 	}
 
@@ -220,8 +219,31 @@ func (s *PostgresStore) CreatePatient(ctx context.Context, input CreatePatientRe
 			transcript_storage_status,
 			updated_at
 		) values ($1, 'pending', 'pending', now())
-	`, patient.ID); execErr != nil {
+	`, patientID); execErr != nil {
 		err = fmt.Errorf("create patient consent state: %w", execErr)
+		return Patient{}, err
+	}
+
+	if err = upsertMemoryProfileTx(ctx, tx, patientID, input.MemoryProfile, input.ConversationGuidance); err != nil {
+		return Patient{}, err
+	}
+
+	if _, execErr := tx.ExecContext(ctx, `
+		insert into screening_schedules (
+			patient_id,
+			enabled,
+			cadence,
+			timezone,
+			preferred_weekday,
+			preferred_local_time,
+			next_due_at,
+			updated_at
+		) values ($1, false, 'weekly', $2, 1, '09:00', null, now())
+		on conflict (patient_id) do update
+		set timezone = excluded.timezone,
+		    updated_at = excluded.updated_at
+	`, patientID, strings.TrimSpace(input.Timezone)); execErr != nil {
+		err = fmt.Errorf("create screening schedule: %w", execErr)
 		return Patient{}, err
 	}
 
@@ -229,32 +251,19 @@ func (s *PostgresStore) CreatePatient(ctx context.Context, input CreatePatientRe
 		return Patient{}, fmt.Errorf("commit create patient tx: %w", commitErr)
 	}
 
+	patient, ok, err := s.GetPatient(ctx, patientID)
+	if err != nil {
+		return Patient{}, err
+	}
+	if !ok {
+		return Patient{}, ErrPatientNotFound
+	}
+
 	return patient, nil
 }
 
 func (s *PostgresStore) GetPatient(ctx context.Context, patientID string) (Patient, bool, error) {
-	row := s.db.QueryRowContext(ctx, `
-		select
-			id,
-			primary_caregiver_id,
-			display_name,
-			preferred_name,
-			phone_e164,
-			timezone,
-			notes,
-			calling_state,
-			pause_reason,
-			paused_at,
-			routine_anchors,
-			favorite_topics,
-			calming_cues,
-			topics_to_avoid,
-			created_at,
-			updated_at
-		from patients
-		where id = $1
-	`, strings.TrimSpace(patientID))
-
+	row := s.db.QueryRowContext(ctx, patientSelectByID, strings.TrimSpace(patientID))
 	patient, err := scanPatient(row)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -267,7 +276,17 @@ func (s *PostgresStore) GetPatient(ctx context.Context, patientID string) (Patie
 }
 
 func (s *PostgresStore) UpdatePatient(ctx context.Context, patientID string, input UpdatePatientRequest) (Patient, error) {
-	row := s.db.QueryRowContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Patient{}, fmt.Errorf("begin update patient tx: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	row := tx.QueryRowContext(ctx, `
 		update patients
 		set primary_caregiver_id = $2,
 		    display_name = $3,
@@ -281,223 +300,347 @@ func (s *PostgresStore) UpdatePatient(ctx context.Context, patientID string, inp
 		    topics_to_avoid = $11,
 		    updated_at = now()
 		where id = $1
-		returning
-			id,
-			primary_caregiver_id,
-			display_name,
-			preferred_name,
-			phone_e164,
-			timezone,
-			notes,
-			calling_state,
-			pause_reason,
-			paused_at,
-			routine_anchors,
-			favorite_topics,
-			calming_cues,
-			topics_to_avoid,
-			created_at,
-			updated_at
+		returning id
 	`, strings.TrimSpace(patientID), strings.TrimSpace(input.PrimaryCaregiverID), strings.TrimSpace(input.DisplayName), strings.TrimSpace(input.PreferredName), nullableString(input.PhoneE164), strings.TrimSpace(input.Timezone), nullableString(input.Notes), marshalStringList(input.RoutineAnchors), marshalStringList(input.FavoriteTopics), marshalStringList(input.CalmingCues), marshalStringList(input.TopicsToAvoid))
 
-	patient, err := scanPatient(row)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+	var updatedID string
+	if scanErr := row.Scan(&updatedID); scanErr != nil {
+		switch {
+		case errors.Is(scanErr, sql.ErrNoRows):
 			return Patient{}, ErrPatientNotFound
-		}
-		if isUniqueViolation(err) {
+		case isUniqueViolation(scanErr):
 			return Patient{}, ErrPatientAlreadyAssigned
-		}
-		if isForeignKeyViolation(err) {
+		case isForeignKeyViolation(scanErr):
 			return Patient{}, ErrCaregiverNotFound
+		default:
+			return Patient{}, fmt.Errorf("update patient: %w", scanErr)
 		}
-		return Patient{}, fmt.Errorf("update patient: %w", err)
+	}
+
+	if err = upsertMemoryProfileTx(ctx, tx, patientID, input.MemoryProfile, input.ConversationGuidance); err != nil {
+		return Patient{}, err
+	}
+
+	if _, execErr := tx.ExecContext(ctx, `
+		update screening_schedules
+		set timezone = $2,
+		    updated_at = now()
+		where patient_id = $1
+	`, patientID, strings.TrimSpace(input.Timezone)); execErr != nil {
+		return Patient{}, fmt.Errorf("update screening schedule timezone: %w", execErr)
+	}
+
+	if commitErr := tx.Commit(); commitErr != nil {
+		return Patient{}, fmt.Errorf("commit update patient tx: %w", commitErr)
+	}
+
+	patient, ok, err := s.GetPatient(ctx, patientID)
+	if err != nil {
+		return Patient{}, err
+	}
+	if !ok {
+		return Patient{}, ErrPatientNotFound
 	}
 
 	return patient, nil
 }
 
-func (s *PostgresStore) GetConsentState(ctx context.Context, patientID string) (ConsentState, bool, error) {
+func (s *PostgresStore) GetScreeningSchedule(ctx context.Context, patientID string) (ScreeningSchedule, bool, error) {
 	row := s.db.QueryRowContext(ctx, `
-		select
-			patient_id,
-			outbound_call_status,
-			transcript_storage_status,
-			coalesce(granted_by_caregiver_id, ''),
-			granted_at,
-			revoked_at,
-			coalesce(notes, ''),
-			created_at,
-			updated_at
-		from patient_consent_state
+		select patient_id, enabled, cadence, timezone, preferred_weekday, preferred_local_time, next_due_at, last_scheduled_window_start, last_scheduled_window_end, created_at, updated_at
+		from screening_schedules
 		where patient_id = $1
 	`, strings.TrimSpace(patientID))
 
-	state, err := scanConsentState(row)
+	schedule, err := scanScreeningSchedule(row)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return ConsentState{}, false, nil
+			return ScreeningSchedule{}, false, nil
 		}
-		return ConsentState{}, false, fmt.Errorf("get consent state: %w", err)
+		return ScreeningSchedule{}, false, fmt.Errorf("get screening schedule: %w", err)
 	}
 
-	return state, true, nil
+	return schedule, true, nil
+}
+
+func (s *PostgresStore) PutScreeningSchedule(ctx context.Context, patientID string, input ScreeningScheduleInput, now time.Time) (ScreeningSchedule, error) {
+	if _, ok, err := s.GetPatient(ctx, patientID); err != nil {
+		return ScreeningSchedule{}, err
+	} else if !ok {
+		return ScreeningSchedule{}, ErrPatientNotFound
+	}
+
+	nextDueAt := computeNextDueAt(now, input.Timezone, input.PreferredWeekday, input.PreferredLocalTime, input.Cadence)
+	if !input.Enabled {
+		nextDueAt = nil
+	}
+
+	row := s.db.QueryRowContext(ctx, `
+		insert into screening_schedules (
+			patient_id,
+			enabled,
+			cadence,
+			timezone,
+			preferred_weekday,
+			preferred_local_time,
+			next_due_at,
+			updated_at
+		) values ($1, $2, $3, $4, $5, $6, $7, $8)
+		on conflict (patient_id) do update
+		set enabled = excluded.enabled,
+		    cadence = excluded.cadence,
+		    timezone = excluded.timezone,
+		    preferred_weekday = excluded.preferred_weekday,
+		    preferred_local_time = excluded.preferred_local_time,
+		    next_due_at = excluded.next_due_at,
+		    updated_at = excluded.updated_at
+		returning patient_id, enabled, cadence, timezone, preferred_weekday, preferred_local_time, next_due_at, last_scheduled_window_start, last_scheduled_window_end, created_at, updated_at
+	`, strings.TrimSpace(patientID), input.Enabled, input.Cadence, strings.TrimSpace(input.Timezone), input.PreferredWeekday, strings.TrimSpace(input.PreferredLocalTime), nextDueAt, now)
+
+	schedule, err := scanScreeningSchedule(row)
+	if err != nil {
+		return ScreeningSchedule{}, fmt.Errorf("put screening schedule: %w", err)
+	}
+
+	return schedule, nil
+}
+
+func (s *PostgresStore) ListDueScreeningSchedules(ctx context.Context, now time.Time, limit int) ([]ScreeningSchedule, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		select patient_id, enabled, cadence, timezone, preferred_weekday, preferred_local_time, next_due_at, last_scheduled_window_start, last_scheduled_window_end, created_at, updated_at
+		from screening_schedules
+		where enabled = true
+		  and next_due_at is not null
+		  and next_due_at <= $1
+		order by next_due_at asc
+		limit $2
+	`, now, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list due screening schedules: %w", err)
+	}
+	defer rows.Close()
+
+	schedules := make([]ScreeningSchedule, 0)
+	for rows.Next() {
+		schedule, scanErr := scanScreeningSchedule(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("scan due screening schedule: %w", scanErr)
+		}
+		schedules = append(schedules, schedule)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate due screening schedules: %w", err)
+	}
+
+	return schedules, nil
+}
+
+func (s *PostgresStore) CreateScheduledScreeningCallRun(ctx context.Context, schedule ScreeningSchedule, now time.Time) (CallRun, bool, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return CallRun{}, false, fmt.Errorf("begin create scheduled call run tx: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	row := tx.QueryRowContext(ctx, `
+		select patient_id, enabled, cadence, timezone, preferred_weekday, preferred_local_time, next_due_at, last_scheduled_window_start, last_scheduled_window_end, created_at, updated_at
+		from screening_schedules
+		where patient_id = $1
+		for update
+	`, schedule.PatientID)
+
+	lockedSchedule, scanErr := scanScreeningSchedule(row)
+	if scanErr != nil {
+		if errors.Is(scanErr, sql.ErrNoRows) {
+			return CallRun{}, false, ErrScreeningScheduleNotFound
+		}
+		return CallRun{}, false, fmt.Errorf("lock screening schedule: %w", scanErr)
+	}
+	if !lockedSchedule.Enabled || lockedSchedule.NextDueAt == nil || lockedSchedule.NextDueAt.After(now) {
+		return CallRun{}, false, tx.Commit()
+	}
+
+	patient, ok, err := s.getPatientTx(ctx, tx, lockedSchedule.PatientID)
+	if err != nil {
+		return CallRun{}, false, err
+	}
+	if !ok {
+		return CallRun{}, false, ErrPatientNotFound
+	}
+	if patient.CallingState == CallingStatePaused {
+		return CallRun{}, false, tx.Commit()
+	}
+
+	consent, ok, err := s.getConsentStateTx(ctx, tx, lockedSchedule.PatientID)
+	if err != nil {
+		return CallRun{}, false, err
+	}
+	if !ok || consent.OutboundCallStatus != ConsentStatusGranted || consent.TranscriptStorageStatus != ConsentStatusGranted {
+		return CallRun{}, false, tx.Commit()
+	}
+
+	template, err := s.resolveActiveCallTemplateByTypeTx(ctx, tx, CallTypeScreening)
+	if err != nil {
+		return CallRun{}, false, err
+	}
+
+	windowStart := lockedSchedule.NextDueAt.UTC()
+	windowEnd := endOfScheduleWindow(windowStart, lockedSchedule.Cadence)
+	callRunID, idErr := idgen.New()
+	if idErr != nil {
+		return CallRun{}, false, idErr
+	}
+
+	insertRow := tx.QueryRowContext(ctx, `
+		insert into call_runs (
+			id,
+			patient_id,
+			caregiver_id,
+			call_template_id,
+			call_type,
+			channel,
+			trigger_type,
+			status,
+			schedule_window_start,
+			schedule_window_end,
+			requested_at,
+			updated_at
+		) values ($1, $2, $3, $4, $5, 'connect', 'scheduled', 'scheduled', $6, $7, $8, $8)
+		on conflict (patient_id, call_type, schedule_window_start, schedule_window_end) do nothing
+		returning id
+	`, callRunID, patient.ID, patient.PrimaryCaregiverID, template.ID, CallTypeScreening, windowStart, windowEnd, now)
+
+	var insertedID string
+	created := true
+	if err := insertRow.Scan(&insertedID); err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			return CallRun{}, false, fmt.Errorf("insert scheduled call run: %w", err)
+		}
+		created = false
+	}
+
+	nextDueAt := advanceScheduleDueAt(windowStart, lockedSchedule.Timezone, lockedSchedule.PreferredLocalTime, lockedSchedule.Cadence)
+	if _, execErr := tx.ExecContext(ctx, `
+		update screening_schedules
+		set last_scheduled_window_start = $2,
+		    last_scheduled_window_end = $3,
+		    next_due_at = $4,
+		    updated_at = $5
+		where patient_id = $1
+	`, lockedSchedule.PatientID, windowStart, windowEnd, nextDueAt, now); execErr != nil {
+		return CallRun{}, false, fmt.Errorf("advance screening schedule: %w", execErr)
+	}
+
+	if commitErr := tx.Commit(); commitErr != nil {
+		return CallRun{}, false, fmt.Errorf("commit scheduled call run tx: %w", commitErr)
+	}
+
+	if !created {
+		return CallRun{}, false, nil
+	}
+
+	callRun, ok, err := s.GetCallRun(ctx, insertedID)
+	if err != nil {
+		return CallRun{}, false, err
+	}
+	if !ok {
+		return CallRun{}, false, ErrCallRunNotFound
+	}
+
+	return callRun, true, nil
+}
+
+func (s *PostgresStore) GetConsentState(ctx context.Context, patientID string) (ConsentState, bool, error) {
+	return s.getConsentStateQuery(ctx, s.db, patientID)
 }
 
 func (s *PostgresStore) PutConsentState(ctx context.Context, patientID string, input UpdateConsentRequest, now time.Time) (ConsentState, error) {
-	patient, ok, err := s.GetPatient(ctx, patientID)
-	if err != nil {
-		return ConsentState{}, err
-	}
-	if !ok {
-		return ConsentState{}, ErrPatientNotFound
-	}
-
-	grantedBy := ""
-	var grantedAt any
-	var revokedAt any
-	if input.OutboundCallStatus == ConsentStatusGranted || input.TranscriptStorageStatus == ConsentStatusGranted {
-		grantedBy = patient.PrimaryCaregiverID
-		grantedAt = now
-	}
-	if input.OutboundCallStatus == ConsentStatusRevoked || input.TranscriptStorageStatus == ConsentStatusRevoked {
-		revokedAt = now
-	}
-
 	row := s.db.QueryRowContext(ctx, `
 		update patient_consent_state
 		set outbound_call_status = $2,
 		    transcript_storage_status = $3,
-		    granted_by_caregiver_id = nullif($4, ''),
-		    granted_at = coalesce($5, granted_at),
-		    revoked_at = coalesce($6, revoked_at),
-		    notes = $7,
-		    updated_at = $8
+		    granted_by_caregiver_id = (
+		    	select primary_caregiver_id from patients where id = $1
+		    ),
+		    granted_at = case when $2 = 'granted' and $3 = 'granted' then $4 else granted_at end,
+		    revoked_at = case when $2 = 'revoked' or $3 = 'revoked' then $4 else revoked_at end,
+		    notes = $5,
+		    updated_at = $4
 		where patient_id = $1
-		returning
-			patient_id,
-			outbound_call_status,
-			transcript_storage_status,
-			coalesce(granted_by_caregiver_id, ''),
-			granted_at,
-			revoked_at,
-			coalesce(notes, ''),
-			created_at,
-			updated_at
-	`, strings.TrimSpace(patientID), input.OutboundCallStatus, input.TranscriptStorageStatus, grantedBy, grantedAt, revokedAt, nullableString(input.Notes), now)
+		returning patient_id, outbound_call_status, transcript_storage_status, coalesce(granted_by_caregiver_id, ''), granted_at, revoked_at, coalesce(notes, ''), created_at, updated_at
+	`, strings.TrimSpace(patientID), input.OutboundCallStatus, input.TranscriptStorageStatus, now, strings.TrimSpace(input.Notes))
 
-	state, scanErr := scanConsentState(row)
-	if scanErr != nil {
-		if errors.Is(scanErr, sql.ErrNoRows) {
+	state, err := scanConsentState(row)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
 			return ConsentState{}, ErrConsentStateNotFound
 		}
-		return ConsentState{}, fmt.Errorf("update consent state: %w", scanErr)
+		return ConsentState{}, fmt.Errorf("put consent state: %w", err)
 	}
 
 	return state, nil
 }
 
 func (s *PostgresStore) SetPatientPause(ctx context.Context, patientID string, reason string, now time.Time) (Patient, error) {
-	row := s.db.QueryRowContext(ctx, `
+	if _, err := s.db.ExecContext(ctx, `
 		update patients
 		set calling_state = 'paused',
 		    pause_reason = nullif($2, ''),
 		    paused_at = $3,
 		    updated_at = $3
 		where id = $1
-		returning
-			id,
-			primary_caregiver_id,
-			display_name,
-			preferred_name,
-			phone_e164,
-			timezone,
-			notes,
-			calling_state,
-			pause_reason,
-			paused_at,
-			routine_anchors,
-			favorite_topics,
-			calming_cues,
-			topics_to_avoid,
-			created_at,
-			updated_at
-	`, strings.TrimSpace(patientID), strings.TrimSpace(reason), now)
-
-	patient, err := scanPatient(row)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return Patient{}, ErrPatientNotFound
-		}
+	`, strings.TrimSpace(patientID), strings.TrimSpace(reason), now); err != nil {
 		return Patient{}, fmt.Errorf("pause patient: %w", err)
 	}
 
+	patient, ok, err := s.GetPatient(ctx, patientID)
+	if err != nil {
+		return Patient{}, err
+	}
+	if !ok {
+		return Patient{}, ErrPatientNotFound
+	}
 	return patient, nil
 }
 
 func (s *PostgresStore) ClearPatientPause(ctx context.Context, patientID string) (Patient, error) {
-	row := s.db.QueryRowContext(ctx, `
+	if _, err := s.db.ExecContext(ctx, `
 		update patients
 		set calling_state = 'active',
 		    pause_reason = null,
 		    paused_at = null,
 		    updated_at = now()
 		where id = $1
-		returning
-			id,
-			primary_caregiver_id,
-			display_name,
-			preferred_name,
-			phone_e164,
-			timezone,
-			notes,
-			calling_state,
-			pause_reason,
-			paused_at,
-			routine_anchors,
-			favorite_topics,
-			calming_cues,
-			topics_to_avoid,
-			created_at,
-			updated_at
-	`, strings.TrimSpace(patientID))
-
-	patient, err := scanPatient(row)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return Patient{}, ErrPatientNotFound
-		}
+	`, strings.TrimSpace(patientID)); err != nil {
 		return Patient{}, fmt.Errorf("clear patient pause: %w", err)
 	}
 
+	patient, ok, err := s.GetPatient(ctx, patientID)
+	if err != nil {
+		return Patient{}, err
+	}
+	if !ok {
+		return Patient{}, ErrPatientNotFound
+	}
 	return patient, nil
 }
 
 func (s *PostgresStore) ListCallTemplates(ctx context.Context) ([]CallTemplate, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		select
-			id,
-			slug,
-			display_name,
-			call_type,
-			description,
-			duration_minutes,
-			prompt_version,
-			system_prompt_template,
-			checklist_json,
-			is_active,
-			created_at,
-			updated_at
-		from call_templates
-		where is_active = true
-		order by display_name asc
-	`)
+	rows, err := s.db.QueryContext(ctx, callTemplateSelectBase+` order by is_active desc, display_name asc`)
 	if err != nil {
 		return nil, fmt.Errorf("list call templates: %w", err)
 	}
 	defer rows.Close()
 
-	var templates []CallTemplate
+	templates := make([]CallTemplate, 0)
 	for rows.Next() {
 		template, scanErr := scanCallTemplate(rows)
 		if scanErr != nil {
@@ -513,24 +656,7 @@ func (s *PostgresStore) ListCallTemplates(ctx context.Context) ([]CallTemplate, 
 }
 
 func (s *PostgresStore) GetCallTemplateByID(ctx context.Context, templateID string) (CallTemplate, bool, error) {
-	row := s.db.QueryRowContext(ctx, `
-		select
-			id,
-			slug,
-			display_name,
-			call_type,
-			description,
-			duration_minutes,
-			prompt_version,
-			system_prompt_template,
-			checklist_json,
-			is_active,
-			created_at,
-			updated_at
-		from call_templates
-		where id = $1
-	`, strings.TrimSpace(templateID))
-
+	row := s.db.QueryRowContext(ctx, callTemplateSelectBase+` where id = $1`, strings.TrimSpace(templateID))
 	template, err := scanCallTemplate(row)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -543,45 +669,7 @@ func (s *PostgresStore) GetCallTemplateByID(ctx context.Context, templateID stri
 }
 
 func (s *PostgresStore) ResolveActiveCallTemplateByType(ctx context.Context, callType string) (CallTemplate, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		select
-			id,
-			slug,
-			display_name,
-			call_type,
-			description,
-			duration_minutes,
-			prompt_version,
-			system_prompt_template,
-			checklist_json,
-			is_active,
-			created_at,
-			updated_at
-		from call_templates
-		where call_type = $1 and is_active = true
-	`, strings.TrimSpace(callType))
-	if err != nil {
-		return CallTemplate{}, fmt.Errorf("resolve call template by type: %w", err)
-	}
-	defer rows.Close()
-
-	var matches []CallTemplate
-	for rows.Next() {
-		template, scanErr := scanCallTemplate(rows)
-		if scanErr != nil {
-			return CallTemplate{}, fmt.Errorf("scan call template by type: %w", scanErr)
-		}
-		matches = append(matches, template)
-	}
-	if err := rows.Err(); err != nil {
-		return CallTemplate{}, fmt.Errorf("iterate call template by type: %w", err)
-	}
-
-	if len(matches) != 1 {
-		return CallTemplate{}, ErrCallTemplateConflict
-	}
-
-	return matches[0], nil
+	return s.resolveActiveCallTemplateByTypeQuery(ctx, s.db, callType)
 }
 
 func (s *PostgresStore) CreateCallRun(ctx context.Context, input CreateCallRunParams) (CallRun, error) {
@@ -590,58 +678,35 @@ func (s *PostgresStore) CreateCallRun(ctx context.Context, input CreateCallRunPa
 		return CallRun{}, err
 	}
 
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return CallRun{}, fmt.Errorf("begin create call run tx: %w", err)
-	}
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback()
-		}
-	}()
-
-	row := tx.QueryRowContext(ctx, `
+	status := chooseString(input.Status, CallRunStatusRequested)
+	row := s.db.QueryRowContext(ctx, `
 		insert into call_runs (
 			id,
 			patient_id,
 			caregiver_id,
 			call_template_id,
+			call_type,
 			channel,
 			trigger_type,
 			status,
+			schedule_window_start,
+			schedule_window_end,
 			requested_at,
 			updated_at
-		) values ($1, $2, $3, $4, $5, $6, 'requested', $7, $7)
-		returning
-			id,
-			patient_id,
-			caregiver_id,
-			call_template_id,
-			$8,
-			$9,
-			$10,
-			channel,
-			trigger_type,
-			status,
-			coalesce(source_voice_session_id, ''),
-			requested_at,
-			started_at,
-			ended_at,
-			coalesce(stop_reason, ''),
-			created_at,
-			updated_at
-	`, id, input.PatientID, input.CaregiverID, input.CallTemplate.ID, input.Channel, input.TriggerType, input.RequestedAt, input.CallTemplate.Slug, input.CallTemplate.DisplayName, input.CallTemplate.CallType)
+		) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
+		returning id, patient_id, caregiver_id, call_template_id, call_type, channel, trigger_type, status, coalesce(source_voice_session_id, ''), schedule_window_start, schedule_window_end, requested_at, started_at, ended_at, coalesce(stop_reason, ''), created_at, updated_at
+	`, id, input.PatientID, input.CaregiverID, input.CallTemplate.ID, input.CallType, input.Channel, input.TriggerType, status, input.ScheduleWindowStart, input.ScheduleWindowEnd, input.RequestedAt)
 
 	callRun, scanErr := scanCallRun(row)
 	if scanErr != nil {
-		err = fmt.Errorf("create call run: %w", scanErr)
-		return CallRun{}, err
+		if isUniqueViolation(scanErr) {
+			return CallRun{}, ErrCallTemplateConflict
+		}
+		return CallRun{}, fmt.Errorf("create call run: %w", scanErr)
 	}
 
-	if commitErr := tx.Commit(); commitErr != nil {
-		return CallRun{}, fmt.Errorf("commit create call run tx: %w", commitErr)
-	}
-
+	callRun.CallTemplateSlug = input.CallTemplate.Slug
+	callRun.CallTemplateName = input.CallTemplate.DisplayName
 	return callRun, nil
 }
 
@@ -653,18 +718,17 @@ func (s *PostgresStore) MarkCallRunFailed(ctx context.Context, callRunID, stopRe
 		    stop_reason = nullif($3, ''),
 		    updated_at = $2
 		where id = $1
-		  and status = 'requested'
+		  and status in ('requested', 'scheduled')
 	`, strings.TrimSpace(callRunID), endedAt, stopReason)
 	if err != nil {
 		return fmt.Errorf("mark call run failed: %w", err)
 	}
-
 	return nil
 }
 
 func (s *PostgresStore) GetCallRun(ctx context.Context, callRunID string) (CallRun, bool, error) {
 	row := s.db.QueryRowContext(ctx, callRunSelectByID, strings.TrimSpace(callRunID))
-	callRun, err := scanCallRun(row)
+	callRun, err := scanCallRunWithTemplate(row)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return CallRun{}, false, nil
@@ -685,9 +749,9 @@ func (s *PostgresStore) ListRecentCallRuns(ctx context.Context, patientID string
 	}
 	defer rows.Close()
 
-	var callRuns []CallRun
+	callRuns := make([]CallRun, 0)
 	for rows.Next() {
-		callRun, scanErr := scanCallRun(rows)
+		callRun, scanErr := scanCallRunWithTemplate(rows)
 		if scanErr != nil {
 			return nil, fmt.Errorf("scan call run: %w", scanErr)
 		}
@@ -713,7 +777,7 @@ func (s *PostgresStore) ListTranscriptTurnsForCallRun(ctx context.Context, callR
 	}
 
 	rows, err := s.db.QueryContext(ctx, `
-		select sequence_no, direction, modality, transcript_text, occurred_at, coalesce(stop_reason, '')
+		select sequence_no, direction, coalesce(speaker_role, ''), modality, transcript_text, occurred_at, coalesce(stop_reason, '')
 		from voice_transcript_turns
 		where voice_session_id = $1
 		order by sequence_no asc
@@ -723,16 +787,12 @@ func (s *PostgresStore) ListTranscriptTurnsForCallRun(ctx context.Context, callR
 	}
 	defer rows.Close()
 
-	var turns []CallTranscriptTurn
+	turns := make([]CallTranscriptTurn, 0)
 	for rows.Next() {
-		var (
-			turn       CallTranscriptTurn
-			stopReason string
-		)
-		if err := rows.Scan(&turn.SequenceNo, &turn.Direction, &turn.Modality, &turn.Text, &turn.OccurredAt, &stopReason); err != nil {
+		var turn CallTranscriptTurn
+		if err := rows.Scan(&turn.SequenceNo, &turn.Direction, &turn.SpeakerRole, &turn.Modality, &turn.Text, &turn.OccurredAt, &turn.StopReason); err != nil {
 			return nil, fmt.Errorf("scan transcript turn: %w", err)
 		}
-		turn.StopReason = strings.TrimSpace(stopReason)
 		turns = append(turns, turn)
 	}
 	if err := rows.Err(); err != nil {
@@ -742,16 +802,151 @@ func (s *PostgresStore) ListTranscriptTurnsForCallRun(ctx context.Context, callR
 	return turns, nil
 }
 
-func (s *PostgresStore) GetAnalysisRecord(ctx context.Context, callRunID string) (AnalysisRecord, bool, error) {
-	row := s.db.QueryRowContext(ctx, `
-		select
+func (s *PostgresStore) GetAnalysisJob(ctx context.Context, callRunID string) (AnalysisJob, bool, error) {
+	row := s.db.QueryRowContext(ctx, analysisJobSelectBase+` where call_run_id = $1`, strings.TrimSpace(callRunID))
+	job, err := scanAnalysisJob(row)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return AnalysisJob{}, false, nil
+		}
+		return AnalysisJob{}, false, fmt.Errorf("get analysis job: %w", err)
+	}
+
+	return job, true, nil
+}
+
+func (s *PostgresStore) UpsertAnalysisJob(ctx context.Context, input UpsertAnalysisJobParams) (AnalysisJob, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return AnalysisJob{}, fmt.Errorf("begin upsert analysis job tx: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	row := tx.QueryRowContext(ctx, analysisJobSelectBase+` where call_run_id = $1 for update`, strings.TrimSpace(input.CallRunID))
+	job, scanErr := scanAnalysisJob(row)
+	if scanErr != nil && !errors.Is(scanErr, sql.ErrNoRows) {
+		return AnalysisJob{}, fmt.Errorf("load analysis job: %w", scanErr)
+	}
+
+	if scanErr == nil {
+		if !input.Force && (job.Status == AnalysisJobStatusPending || job.Status == AnalysisJobStatusRunning || job.Status == AnalysisJobStatusSucceeded) {
+			if commitErr := tx.Commit(); commitErr != nil {
+				return AnalysisJob{}, fmt.Errorf("commit existing analysis job tx: %w", commitErr)
+			}
+			return job, nil
+		}
+
+		row = tx.QueryRowContext(ctx, `
+			update analysis_jobs
+			set status = 'pending',
+			    last_error = null,
+			    locked_at = null,
+			    started_at = null,
+			    finished_at = null,
+			    analysis_prompt_version = $2,
+			    analysis_schema_version = $3,
+			    model_provider = $4,
+			    model_name = $5,
+			    updated_at = $6
+			where id = $1
+			returning id, call_run_id, status, attempt_count, coalesce(last_error, ''), locked_at, started_at, finished_at, analysis_prompt_version, analysis_schema_version, model_provider, model_name, created_at, updated_at
+		`, job.ID, input.AnalysisPromptVersion, input.AnalysisSchemaVersion, input.ModelProvider, input.ModelName, input.Now)
+		job, err = scanAnalysisJob(row)
+		if err != nil {
+			return AnalysisJob{}, fmt.Errorf("reset analysis job: %w", err)
+		}
+		if commitErr := tx.Commit(); commitErr != nil {
+			return AnalysisJob{}, fmt.Errorf("commit reset analysis job tx: %w", commitErr)
+		}
+		return job, nil
+	}
+
+	jobID, idErr := idgen.New()
+	if idErr != nil {
+		return AnalysisJob{}, idErr
+	}
+
+	row = tx.QueryRowContext(ctx, `
+		insert into analysis_jobs (
 			id,
 			call_run_id,
-			model_id,
-			schema_version,
-			raw_result_json,
-			created_at,
+			status,
+			analysis_prompt_version,
+			analysis_schema_version,
+			model_provider,
+			model_name,
 			updated_at
+		) values ($1, $2, 'pending', $3, $4, $5, $6, $7)
+		returning id, call_run_id, status, attempt_count, coalesce(last_error, ''), locked_at, started_at, finished_at, analysis_prompt_version, analysis_schema_version, model_provider, model_name, created_at, updated_at
+	`, jobID, strings.TrimSpace(input.CallRunID), input.AnalysisPromptVersion, input.AnalysisSchemaVersion, input.ModelProvider, input.ModelName, input.Now)
+
+	job, err = scanAnalysisJob(row)
+	if err != nil {
+		return AnalysisJob{}, fmt.Errorf("insert analysis job: %w", err)
+	}
+
+	if commitErr := tx.Commit(); commitErr != nil {
+		return AnalysisJob{}, fmt.Errorf("commit insert analysis job tx: %w", commitErr)
+	}
+
+	return job, nil
+}
+
+func (s *PostgresStore) ClaimNextAnalysisJob(ctx context.Context, now time.Time) (AnalysisJob, bool, error) {
+	row := s.db.QueryRowContext(ctx, `
+		with next_job as (
+			select id
+			from analysis_jobs
+			where status = 'pending'
+			order by created_at asc
+			for update skip locked
+			limit 1
+		)
+		update analysis_jobs aj
+		set status = 'running',
+		    attempt_count = attempt_count + 1,
+		    locked_at = $1,
+		    started_at = coalesce(started_at, $1),
+		    updated_at = $1
+		from next_job
+		where aj.id = next_job.id
+		returning aj.id, aj.call_run_id, aj.status, aj.attempt_count, coalesce(aj.last_error, ''), aj.locked_at, aj.started_at, aj.finished_at, aj.analysis_prompt_version, aj.analysis_schema_version, aj.model_provider, aj.model_name, aj.created_at, aj.updated_at
+	`, now)
+
+	job, err := scanAnalysisJob(row)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return AnalysisJob{}, false, nil
+		}
+		return AnalysisJob{}, false, fmt.Errorf("claim analysis job: %w", err)
+	}
+
+	return job, true, nil
+}
+
+func (s *PostgresStore) MarkAnalysisJobFailed(ctx context.Context, jobID, lastError string, now time.Time) error {
+	_, err := s.db.ExecContext(ctx, `
+		update analysis_jobs
+		set status = 'failed',
+		    last_error = $2,
+		    locked_at = null,
+		    finished_at = $3,
+		    updated_at = $3
+		where id = $1
+	`, strings.TrimSpace(jobID), strings.TrimSpace(lastError), now)
+	if err != nil {
+		return fmt.Errorf("mark analysis job failed: %w", err)
+	}
+	return nil
+}
+
+func (s *PostgresStore) GetAnalysisRecord(ctx context.Context, callRunID string) (AnalysisRecord, bool, error) {
+	row := s.db.QueryRowContext(ctx, `
+		select id, call_run_id, coalesce(call_template_id, ''), model_id, model_provider, model_name, call_prompt_version, analysis_prompt_version, analysis_schema_version, generated_at, raw_result_json, created_at, updated_at
 		from analysis_results
 		where call_run_id = $1
 	`, strings.TrimSpace(callRunID))
@@ -769,6 +964,18 @@ func (s *PostgresStore) GetAnalysisRecord(ctx context.Context, callRunID string)
 		return AnalysisRecord{}, false, err
 	}
 	record.RiskFlags = riskFlags
+	if len(record.Result.RiskFlags) == 0 {
+		record.Result.RiskFlags = make([]AnalysisRiskFlag, 0, len(riskFlags))
+		for _, flag := range riskFlags {
+			record.Result.RiskFlags = append(record.Result.RiskFlags, AnalysisRiskFlag{
+				FlagType:   flag.FlagType,
+				Severity:   flag.Severity,
+				Evidence:   flag.Evidence,
+				Reason:     flag.Reason,
+				Confidence: flag.Confidence,
+			})
+		}
+	}
 
 	return record, true, nil
 }
@@ -817,19 +1024,29 @@ func (s *PostgresStore) GetAnalysisPromptContext(ctx context.Context, callRunID 
 		return AnalysisPromptContext{}, err
 	}
 
+	schedule, ok, err := s.GetScreeningSchedule(ctx, patient.ID)
+	if err != nil {
+		return AnalysisPromptContext{}, err
+	}
+
 	recentAnalyses, err := s.listRecentAnalysisPayloads(ctx, patient.ID, callRunID, 5)
 	if err != nil {
 		return AnalysisPromptContext{}, err
 	}
 
-	return AnalysisPromptContext{
+	contextValue := AnalysisPromptContext{
 		CallRun:         callRun,
 		Patient:         patient,
 		Caregiver:       caregiver,
 		CallTemplate:    callTemplate,
 		TranscriptTurns: turns,
 		RecentAnalyses:  recentAnalyses,
-	}, nil
+	}
+	if ok {
+		contextValue.ScreeningSchedule = &schedule
+	}
+
+	return contextValue, nil
 }
 
 func (s *PostgresStore) SaveAnalysisResult(ctx context.Context, input SaveAnalysisResultInput) (AnalysisRecord, error) {
@@ -853,30 +1070,25 @@ func (s *PostgresStore) SaveAnalysisResult(ctx context.Context, input SaveAnalys
 		return AnalysisRecord{}, fmt.Errorf("marshal analysis payload: %w", err)
 	}
 
-	templateRow := tx.QueryRowContext(ctx, `
-		select
-			id,
-			slug,
-			display_name,
-			call_type,
-			description,
-			duration_minutes,
-			prompt_version,
-			system_prompt_template,
-			checklist_json,
-			is_active,
-			created_at,
-			updated_at
-		from call_templates
-		where call_type = $1 and is_active = true
-	`, input.Result.RecommendedNextCall.Type)
-
-	nextTemplate, scanErr := scanCallTemplate(templateRow)
-	if scanErr != nil {
-		if errors.Is(scanErr, sql.ErrNoRows) {
-			return AnalysisRecord{}, ErrCallTemplateConflict
+	recommendedCallType := input.CallType
+	windowBucket := TimeframeUnspecified
+	goal := strings.TrimSpace(input.Result.CaregiverReviewReason)
+	if goal == "" {
+		goal = strings.TrimSpace(input.Result.Summary)
+	}
+	if input.Result.NextCallRecommendation != nil {
+		recommendedCallType = input.Result.NextCallRecommendation.CallType
+		windowBucket = input.Result.NextCallRecommendation.WindowBucket
+		if strings.TrimSpace(input.Result.NextCallRecommendation.Goal) != "" {
+			goal = strings.TrimSpace(input.Result.NextCallRecommendation.Goal)
 		}
-		return AnalysisRecord{}, fmt.Errorf("resolve recommended next call template: %w", scanErr)
+	} else if input.Result.FollowUpIntent.RequestedByPatient && input.Result.FollowUpIntent.TimeframeBucket != "" {
+		windowBucket = input.Result.FollowUpIntent.TimeframeBucket
+	}
+
+	template, err := s.resolveActiveCallTemplateByTypeTx(ctx, tx, recommendedCallType)
+	if err != nil {
+		return AnalysisRecord{}, err
 	}
 
 	row := tx.QueryRowContext(ctx, `
@@ -884,8 +1096,14 @@ func (s *PostgresStore) SaveAnalysisResult(ctx context.Context, input SaveAnalys
 			id,
 			call_run_id,
 			patient_id,
+			call_template_id,
 			model_id,
+			model_provider,
+			model_name,
+			call_prompt_version,
+			analysis_prompt_version,
 			schema_version,
+			analysis_schema_version,
 			raw_result_json,
 			dashboard_summary,
 			caregiver_summary,
@@ -898,29 +1116,38 @@ func (s *PostgresStore) SaveAnalysisResult(ctx context.Context, input SaveAnalys
 			recommended_time_note,
 			recommended_duration_minutes,
 			recommended_goal,
+			caregiver_review_reason,
+			follow_up_requested_by_patient,
+			follow_up_evidence,
+			generated_at,
 			updated_at
 		) values (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11, $12, $13, 'unclear', 'unclear', 'medium', 0.0, $14, $15, $16, $17, $18, $19, $20, $21, $22, $22
 		)
 		on conflict (call_run_id) do update
-		set model_id = excluded.model_id,
+		set call_template_id = excluded.call_template_id,
+		    model_id = excluded.model_id,
+		    model_provider = excluded.model_provider,
+		    model_name = excluded.model_name,
+		    call_prompt_version = excluded.call_prompt_version,
+		    analysis_prompt_version = excluded.analysis_prompt_version,
 		    schema_version = excluded.schema_version,
+		    analysis_schema_version = excluded.analysis_schema_version,
 		    raw_result_json = excluded.raw_result_json,
 		    dashboard_summary = excluded.dashboard_summary,
 		    caregiver_summary = excluded.caregiver_summary,
-		    orientation = excluded.orientation,
-		    mood = excluded.mood,
-		    engagement = excluded.engagement,
-		    confidence = excluded.confidence,
 		    escalation_level = excluded.escalation_level,
 		    recommended_call_type = excluded.recommended_call_type,
 		    recommended_time_note = excluded.recommended_time_note,
 		    recommended_duration_minutes = excluded.recommended_duration_minutes,
 		    recommended_goal = excluded.recommended_goal,
+		    caregiver_review_reason = excluded.caregiver_review_reason,
+		    follow_up_requested_by_patient = excluded.follow_up_requested_by_patient,
+		    follow_up_evidence = excluded.follow_up_evidence,
+		    generated_at = excluded.generated_at,
 		    updated_at = excluded.updated_at
 		returning id
-	`, analysisID, input.CallRunID, input.PatientID, input.ModelID, input.SchemaVersion, payload, input.Result.DashboardSummary, input.Result.CaregiverSummary, input.Result.PatientState.Orientation, input.Result.PatientState.Mood, input.Result.PatientState.Engagement, input.Result.PatientState.Confidence, input.Result.EscalationLevel, input.Result.RecommendedNextCall.Type, nullableString(input.Result.RecommendedNextCall.Timing), input.Result.RecommendedNextCall.DurationMinutes, input.Result.RecommendedNextCall.Goal, input.CreatedAt)
-
+	`, analysisID, input.CallRunID, input.PatientID, nullableString(input.CallTemplateID), input.ModelName, input.ModelProvider, input.ModelName, input.CallPromptVersion, input.AnalysisPromptVersion, input.SchemaVersion, payload, summarizeAnalysisForDashboard(input.Result), summarizeAnalysisForCaregiver(input.Result), input.Result.EscalationLevel, recommendedCallType, nullableString(windowBucket), template.DurationMinutes, goal, nullableString(input.Result.CaregiverReviewReason), input.Result.FollowUpIntent.RequestedByPatient, nullableString(input.Result.FollowUpIntent.Evidence), input.GeneratedAt)
 	if scanErr := row.Scan(&analysisID); scanErr != nil {
 		return AnalysisRecord{}, fmt.Errorf("upsert analysis result: %w", scanErr)
 	}
@@ -929,7 +1156,7 @@ func (s *PostgresStore) SaveAnalysisResult(ctx context.Context, input SaveAnalys
 		return AnalysisRecord{}, fmt.Errorf("delete existing risk flags: %w", execErr)
 	}
 
-	for _, flag := range input.RiskFlags {
+	for _, flag := range input.Result.RiskFlags {
 		riskID, idErr := idgen.New()
 		if idErr != nil {
 			return AnalysisRecord{}, idErr
@@ -944,7 +1171,7 @@ func (s *PostgresStore) SaveAnalysisResult(ctx context.Context, input SaveAnalys
 				why_it_matters,
 				confidence
 			) values ($1, $2, $3, $4, $5, $6, $7)
-		`, riskID, analysisID, flag.FlagType, flag.Severity, nullableString(flag.EvidenceQuote), nullableString(flag.WhyItMatters), flag.Confidence); execErr != nil {
+		`, riskID, analysisID, flag.FlagType, flag.Severity, nullableString(flag.Evidence), nullableString(flag.Reason), flag.Confidence); execErr != nil {
 			return AnalysisRecord{}, fmt.Errorf("insert risk flag: %w", execErr)
 		}
 	}
@@ -955,29 +1182,53 @@ func (s *PostgresStore) SaveAnalysisResult(ctx context.Context, input SaveAnalys
 		    updated_at = $2
 		where patient_id = $1
 		  and approval_status in ('pending_approval', 'approved')
-	`, input.PatientID, input.CreatedAt); execErr != nil {
+	`, input.PatientID, input.GeneratedAt); execErr != nil {
 		return AnalysisRecord{}, fmt.Errorf("supersede active next call plans: %w", execErr)
 	}
 
-	nextCallPlanID, idErr := idgen.New()
-	if idErr != nil {
-		return AnalysisRecord{}, idErr
+	if shouldCreateNextCallPlan(input.Result) {
+		windowStart, windowEnd, err := deriveSuggestedWindow(input.GeneratedAt, input.PatientTimezone, windowBucket)
+		if err != nil {
+			return AnalysisRecord{}, err
+		}
+
+		nextCallPlanID, idErr := idgen.New()
+		if idErr != nil {
+			return AnalysisRecord{}, idErr
+		}
+		if _, execErr := tx.ExecContext(ctx, `
+			insert into next_call_plans (
+				id,
+				patient_id,
+				source_analysis_result_id,
+				call_template_id,
+				call_type,
+				suggested_time_note,
+				suggested_window_start_at,
+				suggested_window_end_at,
+				duration_minutes,
+				goal,
+				follow_up_requested_by_patient,
+				follow_up_evidence,
+				caregiver_review_reason,
+				approval_status,
+				updated_at
+			) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'pending_approval', $14)
+		`, nextCallPlanID, input.PatientID, analysisID, template.ID, recommendedCallType, nullableString(windowBucket), windowStart, windowEnd, template.DurationMinutes, goal, input.Result.FollowUpIntent.RequestedByPatient, nullableString(input.Result.FollowUpIntent.Evidence), nullableString(input.Result.CaregiverReviewReason), input.GeneratedAt); execErr != nil {
+			return AnalysisRecord{}, fmt.Errorf("insert next call plan: %w", execErr)
+		}
 	}
+
 	if _, execErr := tx.ExecContext(ctx, `
-		insert into next_call_plans (
-			id,
-			patient_id,
-			source_analysis_result_id,
-			call_template_id,
-			call_type,
-			suggested_time_note,
-			duration_minutes,
-			goal,
-			approval_status,
-			updated_at
-		) values ($1, $2, $3, $4, $5, $6, $7, $8, 'pending_approval', $9)
-	`, nextCallPlanID, input.PatientID, analysisID, nextTemplate.ID, input.Result.RecommendedNextCall.Type, nullableString(input.Result.RecommendedNextCall.Timing), input.Result.RecommendedNextCall.DurationMinutes, input.Result.RecommendedNextCall.Goal, input.CreatedAt); execErr != nil {
-		return AnalysisRecord{}, fmt.Errorf("insert next call plan: %w", execErr)
+		update analysis_jobs
+		set status = 'succeeded',
+		    last_error = null,
+		    locked_at = null,
+		    finished_at = $2,
+		    updated_at = $2
+		where call_run_id = $1
+	`, input.CallRunID, input.GeneratedAt); execErr != nil {
+		return AnalysisRecord{}, fmt.Errorf("mark analysis job succeeded: %w", execErr)
 	}
 
 	if commitErr := tx.Commit(); commitErr != nil {
@@ -1027,18 +1278,19 @@ func (s *PostgresStore) UpdateNextCallPlan(ctx context.Context, patientID string
 	callType := current.CallType
 	callTemplateSlug := current.CallTemplateSlug
 	callTemplateName := current.CallTemplateName
+	durationMinutes := current.DurationMinutes
 	if input.CallTemplate != nil {
 		callTemplateID = input.CallTemplate.ID
 		callType = input.CallTemplate.CallType
 		callTemplateSlug = input.CallTemplate.Slug
 		callTemplateName = input.CallTemplate.DisplayName
+		durationMinutes = input.CallTemplate.DurationMinutes
 	}
-
-	suggestedTimeNote := chooseString(input.SuggestedTimeNote, current.SuggestedTimeNote)
-	durationMinutes := current.DurationMinutes
 	if input.DurationMinutes != nil {
 		durationMinutes = *input.DurationMinutes
 	}
+
+	suggestedTimeNote := chooseString(input.SuggestedTimeNote, current.SuggestedTimeNote)
 	goal := chooseString(input.Goal, current.Goal)
 	plannedFor := current.PlannedFor
 	if input.PlannedFor != nil {
@@ -1096,9 +1348,14 @@ func (s *PostgresStore) UpdateNextCallPlan(ctx context.Context, patientID string
 			$16,
 			call_type,
 			coalesce(suggested_time_note, ''),
+			suggested_window_start_at,
+			suggested_window_end_at,
 			planned_for,
 			duration_minutes,
 			goal,
+			follow_up_requested_by_patient,
+			coalesce(follow_up_evidence, ''),
+			coalesce(caregiver_review_reason, ''),
 			approval_status,
 			coalesce(approved_by_caregiver_id, ''),
 			coalesce(approved_by_admin_username, ''),
@@ -1161,7 +1418,12 @@ func (s *PostgresStore) GetDashboard(ctx context.Context, patientID string) (Das
 		}
 	}
 
-	activePlan, ok, err := s.GetActiveNextCallPlan(ctx, patient.ID)
+	activePlan, planFound, err := s.GetActiveNextCallPlan(ctx, patient.ID)
+	if err != nil {
+		return DashboardSnapshot{}, err
+	}
+
+	schedule, scheduleFound, err := s.GetScreeningSchedule(ctx, patient.ID)
 	if err != nil {
 		return DashboardSnapshot{}, err
 	}
@@ -1180,11 +1442,78 @@ func (s *PostgresStore) GetDashboard(ctx context.Context, patientID string) (Das
 		LatestAnalysis: latestAnalysis,
 		RiskFlags:      riskFlags,
 	}
-	if ok {
+	if planFound {
 		dashboard.ActiveNextCallPlan = &activePlan
+	}
+	if scheduleFound {
+		dashboard.ScreeningSchedule = &schedule
 	}
 
 	return dashboard, nil
+}
+
+func (s *PostgresStore) getConsentStateTx(ctx context.Context, tx *sql.Tx, patientID string) (ConsentState, bool, error) {
+	return s.getConsentStateQuery(ctx, tx, patientID)
+}
+
+func (s *PostgresStore) getConsentStateQuery(ctx context.Context, queryer interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}, patientID string) (ConsentState, bool, error) {
+	row := queryer.QueryRowContext(ctx, `
+		select patient_id, outbound_call_status, transcript_storage_status, coalesce(granted_by_caregiver_id, ''), granted_at, revoked_at, coalesce(notes, ''), created_at, updated_at
+		from patient_consent_state
+		where patient_id = $1
+	`, strings.TrimSpace(patientID))
+	state, err := scanConsentState(row)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ConsentState{}, false, nil
+		}
+		return ConsentState{}, false, fmt.Errorf("get consent state: %w", err)
+	}
+	return state, true, nil
+}
+
+func (s *PostgresStore) getPatientTx(ctx context.Context, tx *sql.Tx, patientID string) (Patient, bool, error) {
+	row := tx.QueryRowContext(ctx, patientSelectByID, strings.TrimSpace(patientID))
+	patient, err := scanPatient(row)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Patient{}, false, nil
+		}
+		return Patient{}, false, fmt.Errorf("get patient tx: %w", err)
+	}
+	return patient, true, nil
+}
+
+func (s *PostgresStore) resolveActiveCallTemplateByTypeTx(ctx context.Context, tx *sql.Tx, callType string) (CallTemplate, error) {
+	return s.resolveActiveCallTemplateByTypeQuery(ctx, tx, callType)
+}
+
+func (s *PostgresStore) resolveActiveCallTemplateByTypeQuery(ctx context.Context, queryer interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}, callType string) (CallTemplate, error) {
+	rows, err := queryer.QueryContext(ctx, callTemplateSelectBase+` where call_type = $1 and is_active = true`, strings.TrimSpace(callType))
+	if err != nil {
+		return CallTemplate{}, fmt.Errorf("resolve call template by type: %w", err)
+	}
+	defer rows.Close()
+
+	matches := make([]CallTemplate, 0, 2)
+	for rows.Next() {
+		template, scanErr := scanCallTemplate(rows)
+		if scanErr != nil {
+			return CallTemplate{}, fmt.Errorf("scan call template by type: %w", scanErr)
+		}
+		matches = append(matches, template)
+	}
+	if err := rows.Err(); err != nil {
+		return CallTemplate{}, fmt.Errorf("iterate call templates by type: %w", err)
+	}
+	if len(matches) != 1 {
+		return CallTemplate{}, ErrCallTemplateConflict
+	}
+	return matches[0], nil
 }
 
 func (s *PostgresStore) listRecentAnalysisPayloads(ctx context.Context, patientID string, excludeCallRunID string, limit int) ([]AnalysisPayload, error) {
@@ -1201,7 +1530,7 @@ func (s *PostgresStore) listRecentAnalysisPayloads(ctx context.Context, patientI
 	}
 	defer rows.Close()
 
-	var payloads []AnalysisPayload
+	payloads := make([]AnalysisPayload, 0)
 	for rows.Next() {
 		var raw json.RawMessage
 		if err := rows.Scan(&raw); err != nil {
@@ -1232,10 +1561,10 @@ func (s *PostgresStore) listRiskFlags(ctx context.Context, analysisResultID stri
 	}
 	defer rows.Close()
 
-	var flags []RiskFlag
+	flags := make([]RiskFlag, 0)
 	for rows.Next() {
 		var flag RiskFlag
-		if err := rows.Scan(&flag.ID, &flag.AnalysisResultID, &flag.FlagType, &flag.Severity, &flag.EvidenceQuote, &flag.WhyItMatters, &flag.Confidence, &flag.CreatedAt); err != nil {
+		if err := rows.Scan(&flag.ID, &flag.AnalysisResultID, &flag.FlagType, &flag.Severity, &flag.Evidence, &flag.Reason, &flag.Confidence, &flag.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan risk flag: %w", err)
 		}
 		flags = append(flags, flag)
@@ -1247,6 +1576,96 @@ func (s *PostgresStore) listRiskFlags(ctx context.Context, analysisResultID stri
 	return flags, nil
 }
 
+func upsertMemoryProfileTx(ctx context.Context, tx *sql.Tx, patientID string, profile MemoryProfile, guidance ConversationGuidance) error {
+	if _, err := tx.ExecContext(ctx, `
+		insert into patient_memory_profiles (
+			patient_id,
+			likes,
+			family_members,
+			life_events,
+			reminiscence_notes,
+			preferred_greeting_style,
+			calming_topics,
+			upsetting_topics,
+			hearing_or_pacing_notes,
+			best_time_of_day,
+			do_not_mention,
+			updated_at
+		) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now())
+		on conflict (patient_id) do update
+		set likes = excluded.likes,
+		    family_members = excluded.family_members,
+		    life_events = excluded.life_events,
+		    reminiscence_notes = excluded.reminiscence_notes,
+		    preferred_greeting_style = excluded.preferred_greeting_style,
+		    calming_topics = excluded.calming_topics,
+		    upsetting_topics = excluded.upsetting_topics,
+		    hearing_or_pacing_notes = excluded.hearing_or_pacing_notes,
+		    best_time_of_day = excluded.best_time_of_day,
+		    do_not_mention = excluded.do_not_mention,
+		    updated_at = excluded.updated_at
+	`, patientID, marshalStringList(profile.Likes), marshalJSON(profile.FamilyMembers), marshalJSON(profile.LifeEvents), nullableString(profile.ReminiscenceNotes), nullableString(guidance.PreferredGreetingStyle), marshalStringList(guidance.CalmingTopics), marshalStringList(guidance.UpsettingTopics), nullableString(guidance.HearingOrPacingNotes), nullableString(guidance.BestTimeOfDay), marshalStringList(guidance.DoNotMention)); err != nil {
+		return fmt.Errorf("upsert patient memory profile: %w", err)
+	}
+	return nil
+}
+
+const patientSelectBase = `
+	select
+		p.id,
+		p.primary_caregiver_id,
+		p.display_name,
+		p.preferred_name,
+		p.phone_e164,
+		p.timezone,
+		p.notes,
+		p.calling_state,
+		p.pause_reason,
+		p.paused_at,
+		p.routine_anchors,
+		p.favorite_topics,
+		p.calming_cues,
+		p.topics_to_avoid,
+		coalesce(pmp.likes, '[]'::jsonb),
+		coalesce(pmp.family_members, '[]'::jsonb),
+		coalesce(pmp.life_events, '[]'::jsonb),
+		coalesce(pmp.reminiscence_notes, ''),
+		coalesce(pmp.preferred_greeting_style, ''),
+		coalesce(pmp.calming_topics, '[]'::jsonb),
+		coalesce(pmp.upsetting_topics, '[]'::jsonb),
+		coalesce(pmp.hearing_or_pacing_notes, ''),
+		coalesce(pmp.best_time_of_day, ''),
+		coalesce(pmp.do_not_mention, '[]'::jsonb),
+		p.created_at,
+		p.updated_at
+	from patients p
+	left join patient_memory_profiles pmp on pmp.patient_id = p.id
+`
+
+const patientSelectByID = patientSelectBase + `
+	where p.id = $1
+`
+
+const callTemplateSelectBase = `
+	select
+		id,
+		slug,
+		display_name,
+		call_type,
+		description,
+		duration_minutes,
+		coalesce(prompt_version, call_prompt_version),
+		call_prompt_version,
+		system_prompt_template,
+		analysis_prompt_version,
+		analysis_prompt_template,
+		checklist_json,
+		is_active,
+		created_at,
+		updated_at
+	from call_templates
+`
+
 const callRunSelectColumns = `
 	select
 		cr.id,
@@ -1255,11 +1674,13 @@ const callRunSelectColumns = `
 		cr.call_template_id,
 		ct.slug,
 		ct.display_name,
-		ct.call_type,
+		cr.call_type,
 		cr.channel,
 		cr.trigger_type,
 		cr.status,
 		coalesce(cr.source_voice_session_id, ''),
+		cr.schedule_window_start,
+		cr.schedule_window_end,
 		cr.requested_at,
 		cr.started_at,
 		cr.ended_at,
@@ -1280,6 +1701,11 @@ const callRunListByPatientQuery = callRunSelectColumns + `
 	limit $2
 `
 
+const analysisJobSelectBase = `
+	select id, call_run_id, status, attempt_count, coalesce(last_error, ''), locked_at, started_at, finished_at, analysis_prompt_version, analysis_schema_version, model_provider, model_name, created_at, updated_at
+	from analysis_jobs
+`
+
 const nextCallPlanSelectBase = `
 	select
 		ncp.id,
@@ -1290,9 +1716,14 @@ const nextCallPlanSelectBase = `
 		ct.display_name,
 		ncp.call_type,
 		coalesce(ncp.suggested_time_note, ''),
+		ncp.suggested_window_start_at,
+		ncp.suggested_window_end_at,
 		ncp.planned_for,
 		ncp.duration_minutes,
 		ncp.goal,
+		ncp.follow_up_requested_by_patient,
+		coalesce(ncp.follow_up_evidence, ''),
+		coalesce(ncp.caregiver_review_reason, ''),
 		ncp.approval_status,
 		coalesce(ncp.approved_by_caregiver_id, ''),
 		coalesce(ncp.approved_by_admin_username, ''),
@@ -1324,17 +1755,54 @@ func scanCaregiver(row scanner) (Caregiver, error) {
 
 func scanPatient(row scanner) (Patient, error) {
 	var (
-		patient        Patient
-		phone          sql.NullString
-		notes          sql.NullString
-		pauseReason    sql.NullString
-		pausedAt       sql.NullTime
-		routineAnchors []byte
-		favoriteTopics []byte
-		calmingCues    []byte
-		topicsToAvoid  []byte
+		patient                Patient
+		phone                  sql.NullString
+		notes                  sql.NullString
+		pauseReason            sql.NullString
+		pausedAt               sql.NullTime
+		routineAnchors         []byte
+		favoriteTopics         []byte
+		calmingCues            []byte
+		topicsToAvoid          []byte
+		likes                  []byte
+		familyMembers          []byte
+		lifeEvents             []byte
+		reminiscenceNotes      string
+		preferredGreetingStyle string
+		calmingTopics          []byte
+		upsettingTopics        []byte
+		hearingOrPacingNotes   string
+		bestTimeOfDay          string
+		doNotMention           []byte
 	)
-	if err := row.Scan(&patient.ID, &patient.PrimaryCaregiverID, &patient.DisplayName, &patient.PreferredName, &phone, &patient.Timezone, &notes, &patient.CallingState, &pauseReason, &pausedAt, &routineAnchors, &favoriteTopics, &calmingCues, &topicsToAvoid, &patient.CreatedAt, &patient.UpdatedAt); err != nil {
+	if err := row.Scan(
+		&patient.ID,
+		&patient.PrimaryCaregiverID,
+		&patient.DisplayName,
+		&patient.PreferredName,
+		&phone,
+		&patient.Timezone,
+		&notes,
+		&patient.CallingState,
+		&pauseReason,
+		&pausedAt,
+		&routineAnchors,
+		&favoriteTopics,
+		&calmingCues,
+		&topicsToAvoid,
+		&likes,
+		&familyMembers,
+		&lifeEvents,
+		&reminiscenceNotes,
+		&preferredGreetingStyle,
+		&calmingTopics,
+		&upsettingTopics,
+		&hearingOrPacingNotes,
+		&bestTimeOfDay,
+		&doNotMention,
+		&patient.CreatedAt,
+		&patient.UpdatedAt,
+	); err != nil {
 		return Patient{}, err
 	}
 	if phone.Valid {
@@ -1353,7 +1821,43 @@ func scanPatient(row scanner) (Patient, error) {
 	patient.FavoriteTopics = parseStringList(favoriteTopics)
 	patient.CalmingCues = parseStringList(calmingCues)
 	patient.TopicsToAvoid = parseStringList(topicsToAvoid)
+	patient.MemoryProfile = MemoryProfile{
+		Likes:             parseStringList(likes),
+		FamilyMembers:     parseJSONSlice[FamilyMember](familyMembers),
+		LifeEvents:        parseJSONSlice[LifeEvent](lifeEvents),
+		ReminiscenceNotes: strings.TrimSpace(reminiscenceNotes),
+	}
+	patient.ConversationGuidance = ConversationGuidance{
+		PreferredGreetingStyle: strings.TrimSpace(preferredGreetingStyle),
+		CalmingTopics:          parseStringList(calmingTopics),
+		UpsettingTopics:        parseStringList(upsettingTopics),
+		HearingOrPacingNotes:   strings.TrimSpace(hearingOrPacingNotes),
+		BestTimeOfDay:          strings.TrimSpace(bestTimeOfDay),
+		DoNotMention:           parseStringList(doNotMention),
+	}
 	return patient, nil
+}
+
+func scanScreeningSchedule(row scanner) (ScreeningSchedule, error) {
+	var (
+		schedule                 ScreeningSchedule
+		nextDueAt                sql.NullTime
+		lastScheduledWindowStart sql.NullTime
+		lastScheduledWindowEnd   sql.NullTime
+	)
+	if err := row.Scan(&schedule.PatientID, &schedule.Enabled, &schedule.Cadence, &schedule.Timezone, &schedule.PreferredWeekday, &schedule.PreferredLocalTime, &nextDueAt, &lastScheduledWindowStart, &lastScheduledWindowEnd, &schedule.CreatedAt, &schedule.UpdatedAt); err != nil {
+		return ScreeningSchedule{}, err
+	}
+	if nextDueAt.Valid {
+		schedule.NextDueAt = &nextDueAt.Time
+	}
+	if lastScheduledWindowStart.Valid {
+		schedule.LastScheduledWindowStart = &lastScheduledWindowStart.Time
+	}
+	if lastScheduledWindowEnd.Valid {
+		schedule.LastScheduledWindowEnd = &lastScheduledWindowEnd.Time
+	}
+	return schedule, nil
 }
 
 func scanConsentState(row scanner) (ConsentState, error) {
@@ -1377,21 +1881,32 @@ func scanConsentState(row scanner) (ConsentState, error) {
 func scanCallTemplate(row scanner) (CallTemplate, error) {
 	var template CallTemplate
 	var checklist []byte
-	if err := row.Scan(&template.ID, &template.Slug, &template.DisplayName, &template.CallType, &template.Description, &template.DurationMinutes, &template.PromptVersion, &template.SystemPromptTemplate, &checklist, &template.IsActive, &template.CreatedAt, &template.UpdatedAt); err != nil {
+	if err := row.Scan(&template.ID, &template.Slug, &template.DisplayName, &template.CallType, &template.Description, &template.DurationMinutes, &template.PromptVersion, &template.CallPromptVersion, &template.SystemPromptTemplate, &template.AnalysisPromptVersion, &template.AnalysisPromptTemplate, &checklist, &template.IsActive, &template.CreatedAt, &template.UpdatedAt); err != nil {
 		return CallTemplate{}, err
 	}
 	template.Checklist = append(template.Checklist[:0], checklist...)
+	if template.PromptVersion == "" {
+		template.PromptVersion = template.CallPromptVersion
+	}
 	return template, nil
 }
 
 func scanCallRun(row scanner) (CallRun, error) {
 	var (
-		callRun   CallRun
-		startedAt sql.NullTime
-		endedAt   sql.NullTime
+		callRun             CallRun
+		scheduleWindowStart sql.NullTime
+		scheduleWindowEnd   sql.NullTime
+		startedAt           sql.NullTime
+		endedAt             sql.NullTime
 	)
-	if err := row.Scan(&callRun.ID, &callRun.PatientID, &callRun.CaregiverID, &callRun.CallTemplateID, &callRun.CallTemplateSlug, &callRun.CallTemplateName, &callRun.CallType, &callRun.Channel, &callRun.TriggerType, &callRun.Status, &callRun.SourceVoiceSessionID, &callRun.RequestedAt, &startedAt, &endedAt, &callRun.StopReason, &callRun.CreatedAt, &callRun.UpdatedAt); err != nil {
+	if err := row.Scan(&callRun.ID, &callRun.PatientID, &callRun.CaregiverID, &callRun.CallTemplateID, &callRun.CallType, &callRun.Channel, &callRun.TriggerType, &callRun.Status, &callRun.SourceVoiceSessionID, &scheduleWindowStart, &scheduleWindowEnd, &callRun.RequestedAt, &startedAt, &endedAt, &callRun.StopReason, &callRun.CreatedAt, &callRun.UpdatedAt); err != nil {
 		return CallRun{}, err
+	}
+	if scheduleWindowStart.Valid {
+		callRun.ScheduleWindowStart = &scheduleWindowStart.Time
+	}
+	if scheduleWindowEnd.Valid {
+		callRun.ScheduleWindowEnd = &scheduleWindowEnd.Time
 	}
 	if startedAt.Valid {
 		callRun.StartedAt = &startedAt.Time
@@ -1402,12 +1917,60 @@ func scanCallRun(row scanner) (CallRun, error) {
 	return callRun, nil
 }
 
+func scanCallRunWithTemplate(row scanner) (CallRun, error) {
+	var (
+		callRun             CallRun
+		scheduleWindowStart sql.NullTime
+		scheduleWindowEnd   sql.NullTime
+		startedAt           sql.NullTime
+		endedAt             sql.NullTime
+	)
+	if err := row.Scan(&callRun.ID, &callRun.PatientID, &callRun.CaregiverID, &callRun.CallTemplateID, &callRun.CallTemplateSlug, &callRun.CallTemplateName, &callRun.CallType, &callRun.Channel, &callRun.TriggerType, &callRun.Status, &callRun.SourceVoiceSessionID, &scheduleWindowStart, &scheduleWindowEnd, &callRun.RequestedAt, &startedAt, &endedAt, &callRun.StopReason, &callRun.CreatedAt, &callRun.UpdatedAt); err != nil {
+		return CallRun{}, err
+	}
+	if scheduleWindowStart.Valid {
+		callRun.ScheduleWindowStart = &scheduleWindowStart.Time
+	}
+	if scheduleWindowEnd.Valid {
+		callRun.ScheduleWindowEnd = &scheduleWindowEnd.Time
+	}
+	if startedAt.Valid {
+		callRun.StartedAt = &startedAt.Time
+	}
+	if endedAt.Valid {
+		callRun.EndedAt = &endedAt.Time
+	}
+	return callRun, nil
+}
+
+func scanAnalysisJob(row scanner) (AnalysisJob, error) {
+	var (
+		job        AnalysisJob
+		lockedAt   sql.NullTime
+		startedAt  sql.NullTime
+		finishedAt sql.NullTime
+	)
+	if err := row.Scan(&job.ID, &job.CallRunID, &job.Status, &job.AttemptCount, &job.LastError, &lockedAt, &startedAt, &finishedAt, &job.AnalysisPromptVersion, &job.SchemaVersion, &job.ModelProvider, &job.ModelName, &job.CreatedAt, &job.UpdatedAt); err != nil {
+		return AnalysisJob{}, err
+	}
+	if lockedAt.Valid {
+		job.LockedAt = &lockedAt.Time
+	}
+	if startedAt.Valid {
+		job.StartedAt = &startedAt.Time
+	}
+	if finishedAt.Valid {
+		job.FinishedAt = &finishedAt.Time
+	}
+	return job, nil
+}
+
 func scanAnalysisRecord(row scanner) (AnalysisRecord, error) {
 	var (
 		record AnalysisRecord
 		raw    json.RawMessage
 	)
-	if err := row.Scan(&record.ID, &record.CallRunID, &record.ModelID, &record.SchemaVersion, &raw, &record.CreatedAt, &record.UpdatedAt); err != nil {
+	if err := row.Scan(&record.ID, &record.CallRunID, &record.CallTemplateID, &record.ModelID, &record.ModelProvider, &record.ModelName, &record.CallPromptVersion, &record.AnalysisPromptVersion, &record.SchemaVersion, &record.GeneratedAt, &raw, &record.CreatedAt, &record.UpdatedAt); err != nil {
 		return AnalysisRecord{}, err
 	}
 	if err := json.Unmarshal(raw, &record.Result); err != nil {
@@ -1418,13 +1981,21 @@ func scanAnalysisRecord(row scanner) (AnalysisRecord, error) {
 
 func scanNextCallPlan(row scanner) (NextCallPlan, error) {
 	var (
-		plan       NextCallPlan
-		plannedFor sql.NullTime
-		approvedAt sql.NullTime
-		rejectedAt sql.NullTime
+		plan                   NextCallPlan
+		suggestedWindowStartAt sql.NullTime
+		suggestedWindowEndAt   sql.NullTime
+		plannedFor             sql.NullTime
+		approvedAt             sql.NullTime
+		rejectedAt             sql.NullTime
 	)
-	if err := row.Scan(&plan.ID, &plan.PatientID, &plan.SourceAnalysisResultID, &plan.CallTemplateID, &plan.CallTemplateSlug, &plan.CallTemplateName, &plan.CallType, &plan.SuggestedTimeNote, &plannedFor, &plan.DurationMinutes, &plan.Goal, &plan.ApprovalStatus, &plan.ApprovedByCaregiverID, &plan.ApprovedByAdminUsername, &approvedAt, &plan.RejectionReason, &rejectedAt, &plan.ExecutedCallRunID, &plan.CreatedAt, &plan.UpdatedAt); err != nil {
+	if err := row.Scan(&plan.ID, &plan.PatientID, &plan.SourceAnalysisResultID, &plan.CallTemplateID, &plan.CallTemplateSlug, &plan.CallTemplateName, &plan.CallType, &plan.SuggestedTimeNote, &suggestedWindowStartAt, &suggestedWindowEndAt, &plannedFor, &plan.DurationMinutes, &plan.Goal, &plan.FollowUpRequestedByPatient, &plan.FollowUpEvidence, &plan.CaregiverReviewReason, &plan.ApprovalStatus, &plan.ApprovedByCaregiverID, &plan.ApprovedByAdminUsername, &approvedAt, &plan.RejectionReason, &rejectedAt, &plan.ExecutedCallRunID, &plan.CreatedAt, &plan.UpdatedAt); err != nil {
 		return NextCallPlan{}, err
+	}
+	if suggestedWindowStartAt.Valid {
+		plan.SuggestedWindowStartAt = &suggestedWindowStartAt.Time
+	}
+	if suggestedWindowEndAt.Valid {
+		plan.SuggestedWindowEndAt = &suggestedWindowEndAt.Time
 	}
 	if plannedFor.Valid {
 		plan.PlannedFor = &plannedFor.Time
@@ -1438,12 +2009,9 @@ func scanNextCallPlan(row scanner) (NextCallPlan, error) {
 	return plan, nil
 }
 
-func nullableString(value string) any {
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "" {
-		return nil
-	}
-	return trimmed
+func marshalJSON(value any) []byte {
+	payload, _ := json.Marshal(value)
+	return payload
 }
 
 func marshalStringList(values []string) []byte {
@@ -1468,6 +2036,25 @@ func parseStringList(raw []byte) []string {
 		return []string{}
 	}
 	return values
+}
+
+func parseJSONSlice[T any](raw []byte) []T {
+	if len(raw) == 0 {
+		return []T{}
+	}
+	var values []T
+	if err := json.Unmarshal(raw, &values); err != nil {
+		return []T{}
+	}
+	return values
+}
+
+func nullableString(value string) any {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil
+	}
+	return trimmed
 }
 
 func isUniqueViolation(err error) bool {

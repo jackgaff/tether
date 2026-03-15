@@ -22,6 +22,10 @@ type fakeServiceStore struct {
 	markFailedEndedAt  time.Time
 	activeNextCallPlan NextCallPlan
 	activePlanFound    bool
+	callRun            CallRun
+	callRunFound       bool
+	analysisJob        AnalysisJob
+	analysisJobFound   bool
 }
 
 func (f *fakeServiceStore) GetPatient(_ context.Context, _ string) (Patient, bool, error) {
@@ -55,25 +59,31 @@ func (f *fakeServiceStore) GetActiveNextCallPlan(_ context.Context, _ string) (N
 	return f.activeNextCallPlan, f.activePlanFound, nil
 }
 
-func (f *fakeServiceStore) GetAnalysisRecord(_ context.Context, _ string) (AnalysisRecord, bool, error) {
-	return AnalysisRecord{}, false, nil
+func (f *fakeServiceStore) GetCallRun(_ context.Context, _ string) (CallRun, bool, error) {
+	return f.callRun, f.callRunFound, nil
 }
 
-func (f *fakeServiceStore) GetAnalysisPromptContext(_ context.Context, _ string) (AnalysisPromptContext, error) {
-	return AnalysisPromptContext{}, nil
+func (f *fakeServiceStore) GetAnalysisJob(_ context.Context, _ string) (AnalysisJob, bool, error) {
+	return f.analysisJob, f.analysisJobFound, nil
 }
 
-func (f *fakeServiceStore) SaveAnalysisResult(_ context.Context, _ SaveAnalysisResultInput) (AnalysisRecord, error) {
-	return AnalysisRecord{}, nil
+func (f *fakeServiceStore) UpsertAnalysisJob(_ context.Context, input UpsertAnalysisJobParams) (AnalysisJob, error) {
+	return AnalysisJob{
+		ID:                    "job-1",
+		CallRunID:             input.CallRunID,
+		Status:                AnalysisJobStatusPending,
+		AnalysisPromptVersion: input.AnalysisPromptVersion,
+		SchemaVersion:         input.AnalysisSchemaVersion,
+		ModelProvider:         input.ModelProvider,
+		ModelName:             input.ModelName,
+	}, nil
 }
 
 func (f *fakeServiceStore) UpdateNextCallPlan(_ context.Context, _ string, _ UpdateNextCallPlanStoreInput) (NextCallPlan, error) {
 	return NextCallPlan{}, nil
 }
 
-type failingVoiceCreator struct {
-	err error
-}
+type failingVoiceCreator struct{}
 
 func (failingVoiceCreator) CreateSession(_ context.Context, _ voice.CreateSessionRequest) (voice.SessionDescriptor, error) {
 	return voice.SessionDescriptor{}, errors.New("bootstrap failed")
@@ -96,18 +106,18 @@ func TestServiceCreateCallMarksBootstrapFailure(t *testing.T) {
 			TranscriptStorageStatus: ConsentStatusGranted,
 		},
 		consentFound:  true,
-		template:      CallTemplate{ID: "tmpl-orientation-v1", CallType: CallTypeOrientation, SystemPromptTemplate: "prompt", IsActive: true},
+		template:      CallTemplate{ID: "tmpl-check-in-v1", CallType: CallTypeCheckIn, SystemPromptTemplate: "prompt", IsActive: true},
 		templateFound: true,
 		createdCallRun: CallRun{
 			ID: "call-run-1",
 		},
 	}
 
-	service := NewService(store, failingVoiceCreator{}, nil, "analysis-model")
+	service := NewService(store, failingVoiceCreator{}, "analysis-model")
 	service.now = func() time.Time { return now }
 
 	_, err := service.CreateCall(context.Background(), "patient-1", CreateCallRequest{
-		CallTemplateID: "tmpl-orientation-v1",
+		CallTemplateID: "tmpl-check-in-v1",
 		Channel:        CallChannelBrowser,
 	})
 	if err == nil {
@@ -140,13 +150,13 @@ func TestServiceCreateCallRejectsUnsupportedChannel(t *testing.T) {
 			TranscriptStorageStatus: ConsentStatusGranted,
 		},
 		consentFound:  true,
-		template:      CallTemplate{ID: "tmpl-orientation-v1", CallType: CallTypeOrientation, SystemPromptTemplate: "prompt", IsActive: true},
+		template:      CallTemplate{ID: "tmpl-check-in-v1", CallType: CallTypeCheckIn, SystemPromptTemplate: "prompt", IsActive: true},
 		templateFound: true,
 	}
 
-	service := NewService(store, failingVoiceCreator{}, nil, "analysis-model")
+	service := NewService(store, failingVoiceCreator{}, "analysis-model")
 	_, err := service.CreateCall(context.Background(), "patient-1", CreateCallRequest{
-		CallTemplateID: "tmpl-orientation-v1",
+		CallTemplateID: "tmpl-check-in-v1",
 		Channel:        "satellite",
 	})
 	if err == nil {
@@ -157,29 +167,22 @@ func TestServiceCreateCallRejectsUnsupportedChannel(t *testing.T) {
 	}
 }
 
-func TestValidateAnalysisPayloadReturnsValidationError(t *testing.T) {
+func TestServiceEnqueueAnalysisRejectsIncompleteCall(t *testing.T) {
 	t.Parallel()
 
-	err := validateAnalysisPayload(AnalysisPayload{
-		CallTypeCompleted: "invalid",
-		PatientState: AnalysisPatientState{
-			Orientation: AnalysisOrientationGood,
-			Mood:        AnalysisMoodNeutral,
-			Engagement:  AnalysisEngagementMedium,
-			Confidence:  0.8,
+	store := &fakeServiceStore{
+		callRun: CallRun{
+			ID:     "call-run-1",
+			Status: CallRunStatusRequested,
 		},
-		RecommendedNextCall: RecommendedNextCall{
-			Type:            CallTypeReminder,
-			Timing:          "Tonight",
-			DurationMinutes: 31,
-			Goal:            "Repeat one routine cue.",
-		},
-		EscalationLevel: EscalationNone,
-	})
-	if err == nil {
-		t.Fatal("expected validation failure")
+		callRunFound:  true,
+		template:      CallTemplate{ID: "tmpl-check-in-v1", AnalysisPromptVersion: "v1"},
+		templateFound: true,
 	}
-	if !isValidationError(err) {
-		t.Fatalf("expected validation error, got %T: %v", err, err)
+
+	service := NewService(store, failingVoiceCreator{}, "analysis-model")
+	_, err := service.EnqueueAnalysis(context.Background(), "call-run-1", false)
+	if !errors.Is(err, ErrCallRunNotCompleted) {
+		t.Fatalf("expected ErrCallRunNotCompleted, got %v", err)
 	}
 }

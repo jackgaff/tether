@@ -4,7 +4,8 @@ info:
   version: 0.2.0
   description: >
     Phase 1 API contract for Nova Echoes. The backend supports voice-driven
-    check-ins, caregiver-administered patient profiles, manual call runs,
+    check-ins, caregiver-administered patient profiles, caregiver-requested and
+    scheduled call runs,
     strict post-call analysis, and next-call recommendation approval.
 servers:
   - url: http://localhost:8080
@@ -374,6 +375,51 @@ paths:
           $ref: "#/components/responses/NotFoundError"
         "409":
           $ref: "#/components/responses/ConflictError"
+  /api/v1/admin/patients/{id}/screening-schedule:
+    get:
+      operationId: getPatientScreeningSchedule
+      summary: Load the patient's scheduled screening cadence
+      security:
+        - AdminSessionAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PatientIdPath"
+      responses:
+        "200":
+          description: Screening schedule returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScreeningScheduleResponse"
+        "401":
+          $ref: "#/components/responses/UnauthorizedSessionError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+    put:
+      operationId: putPatientScreeningSchedule
+      summary: Create or update the patient's scheduled screening cadence
+      security:
+        - AdminSessionAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PatientIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateScreeningScheduleRequest"
+      responses:
+        "200":
+          description: Screening schedule saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScreeningScheduleResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedSessionError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
   /api/v1/admin/patients/{id}/consent:
     get:
       operationId: getPatientConsentState
@@ -501,12 +547,12 @@ paths:
   /api/v1/admin/patients/{id}/calls:
     post:
       operationId: createPatientCallRun
-      summary: Create a manual or approved-next-call run
+      summary: Create a caregiver-requested or approved follow-up call run
       description: >
-        For manual calls, provide exactly one of `callTemplateId` or `callType`.
-        If only `callType` is provided, the server resolves it to the single
-        active template for that type. When `channel=browser`, the response
-        includes a voice session bootstrap object.
+        For caregiver-requested calls, provide exactly one of `callTemplateId`
+        or `callType`. If only `callType` is provided, the server resolves it
+        to the single active template for that type. When `channel=browser`,
+        the response includes a voice session bootstrap object.
       security:
         - AdminSessionAuth: []
       parameters:
@@ -535,7 +581,7 @@ paths:
   /api/v1/admin/calls/{id}:
     get:
       operationId: getCallRun
-      summary: Load a call run with transcript turns and analysis if present
+      summary: Load a call run with transcript turns, analysis job, and analysis if present
       security:
         - AdminSessionAuth: []
       parameters:
@@ -554,7 +600,7 @@ paths:
   /api/v1/admin/calls/{id}/analyze:
     post:
       operationId: analyzeCallRun
-      summary: Run or return strict post-call analysis for a completed call run
+      summary: Create or reuse the structured extraction job for a completed call run
       security:
         - AdminSessionAuth: []
       parameters:
@@ -568,11 +614,11 @@ paths:
             default: false
       responses:
         "200":
-          description: Analysis returned
+          description: Analysis job returned
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/AnalysisRecordResponse"
+                $ref: "#/components/schemas/AnalysisJobResponse"
         "400":
           $ref: "#/components/responses/ValidationError"
         "401":
@@ -581,10 +627,29 @@ paths:
           $ref: "#/components/responses/NotFoundError"
         "409":
           $ref: "#/components/responses/ConflictError"
+  /api/v1/admin/calls/{id}/analysis-job:
+    get:
+      operationId: getCallRunAnalysisJob
+      summary: Load the structured extraction job status for a call run
+      security:
+        - AdminSessionAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CallRunIdPath"
+      responses:
+        "200":
+          description: Analysis job returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalysisJobResponse"
+        "401":
+          $ref: "#/components/responses/UnauthorizedSessionError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
   /api/v1/admin/calls/{id}/analysis:
     get:
       operationId: getCallRunAnalysis
-      summary: Load the saved analysis for a call run
+      summary: Load the saved structured extraction result for a call run
       security:
         - AdminSessionAuth: []
       parameters:
@@ -1202,6 +1267,143 @@ components:
         - timezone
     UpdateCaregiverRequest:
       $ref: "#/components/schemas/CreateCaregiverRequest"
+    CallTypeValue:
+      type: string
+      enum:
+        - screening
+        - check_in
+        - reminiscence
+    CallTriggerTypeValue:
+      type: string
+      enum:
+        - caregiver_requested
+        - scheduled
+        - follow_up_recommendation
+    CallRunStatusValue:
+      type: string
+      enum:
+        - scheduled
+        - requested
+        - in_progress
+        - completed
+        - failed
+        - cancelled
+    AnalysisJobStatusValue:
+      type: string
+      enum:
+        - pending
+        - running
+        - succeeded
+        - failed
+    TimeframeBucketValue:
+      type: string
+      enum:
+        - same_day
+        - tomorrow
+        - few_days
+        - next_week
+        - two_weeks
+        - unspecified
+    EscalationLevelValue:
+      type: string
+      enum:
+        - none
+        - caregiver_soon
+        - caregiver_now
+        - clinical_review
+    RiskSeverityValue:
+      type: string
+      enum:
+        - info
+        - watch
+        - urgent
+    ScreeningCadenceValue:
+      type: string
+      enum:
+        - weekly
+        - biweekly
+    ScreeningCompletionStatusValue:
+      type: string
+      enum:
+        - complete
+        - partial
+        - aborted
+    ScreeningScoreInterpretationValue:
+      type: string
+      enum:
+        - routine_follow_up
+        - caregiver_review_suggested
+        - clinical_review_suggested
+        - incomplete
+    FamilyMember:
+      type: object
+      properties:
+        name:
+          type: string
+        relation:
+          type: string
+        notes:
+          type: string
+      required:
+        - name
+        - relation
+    LifeEvent:
+      type: object
+      properties:
+        label:
+          type: string
+        approximateDate:
+          type: string
+        notes:
+          type: string
+      required:
+        - label
+    MemoryProfile:
+      type: object
+      properties:
+        likes:
+          type: array
+          items:
+            type: string
+        familyMembers:
+          type: array
+          items:
+            $ref: "#/components/schemas/FamilyMember"
+        lifeEvents:
+          type: array
+          items:
+            $ref: "#/components/schemas/LifeEvent"
+        reminiscenceNotes:
+          type: string
+      required:
+        - likes
+        - familyMembers
+        - lifeEvents
+    ConversationGuidance:
+      type: object
+      properties:
+        preferredGreetingStyle:
+          type: string
+        calmingTopics:
+          type: array
+          items:
+            type: string
+        upsettingTopics:
+          type: array
+          items:
+            type: string
+        hearingOrPacingNotes:
+          type: string
+        bestTimeOfDay:
+          type: string
+        doNotMention:
+          type: array
+          items:
+            type: string
+      required:
+        - calmingTopics
+        - upsettingTopics
+        - doNotMention
     Patient:
       type: object
       properties:
@@ -1246,6 +1448,10 @@ components:
           type: array
           items:
             type: string
+        memoryProfile:
+          $ref: "#/components/schemas/MemoryProfile"
+        conversationGuidance:
+          $ref: "#/components/schemas/ConversationGuidance"
         createdAt:
           type: string
           format: date-time
@@ -1263,6 +1469,8 @@ components:
         - favoriteTopics
         - calmingCues
         - topicsToAvoid
+        - memoryProfile
+        - conversationGuidance
         - createdAt
         - updatedAt
     PatientResponse:
@@ -1305,13 +1513,92 @@ components:
           type: array
           items:
             type: string
+        memoryProfile:
+          $ref: "#/components/schemas/MemoryProfile"
+        conversationGuidance:
+          $ref: "#/components/schemas/ConversationGuidance"
       required:
         - primaryCaregiverId
         - displayName
         - preferredName
         - timezone
+        - memoryProfile
+        - conversationGuidance
     UpdatePatientRequest:
       $ref: "#/components/schemas/CreatePatientRequest"
+    ScreeningSchedule:
+      type: object
+      properties:
+        patientId:
+          type: string
+        enabled:
+          type: boolean
+        cadence:
+          $ref: "#/components/schemas/ScreeningCadenceValue"
+        timezone:
+          type: string
+          example: America/Detroit
+        preferredWeekday:
+          type: integer
+          minimum: 0
+          maximum: 6
+        preferredLocalTime:
+          type: string
+          pattern: "^[0-2][0-9]:[0-5][0-9]$"
+        nextDueAt:
+          type: string
+          format: date-time
+        lastScheduledWindowStart:
+          type: string
+          format: date-time
+        lastScheduledWindowEnd:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - patientId
+        - enabled
+        - cadence
+        - timezone
+        - preferredWeekday
+        - preferredLocalTime
+        - createdAt
+        - updatedAt
+    ScreeningScheduleResponse:
+      type: object
+      properties:
+        data:
+          $ref: "#/components/schemas/ScreeningSchedule"
+      required:
+        - data
+    UpdateScreeningScheduleRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        enabled:
+          type: boolean
+        cadence:
+          $ref: "#/components/schemas/ScreeningCadenceValue"
+        timezone:
+          type: string
+        preferredWeekday:
+          type: integer
+          minimum: 0
+          maximum: 6
+        preferredLocalTime:
+          type: string
+          pattern: "^[0-2][0-9]:[0-5][0-9]$"
+      required:
+        - enabled
+        - cadence
+        - timezone
+        - preferredWeekday
+        - preferredLocalTime
     ConsentState:
       type: object
       properties:
@@ -1395,12 +1682,7 @@ components:
         displayName:
           type: string
         callType:
-          type: string
-          enum:
-            - orientation
-            - reminder
-            - wellbeing
-            - reminiscence
+          $ref: "#/components/schemas/CallTypeValue"
         description:
           type: string
         durationMinutes:
@@ -1409,7 +1691,13 @@ components:
           maximum: 30
         promptVersion:
           type: string
+        callPromptVersion:
+          type: string
         systemPromptTemplate:
+          type: string
+        analysisPromptVersion:
+          type: string
+        analysisPromptTemplate:
           type: string
         checklist:
           type: array
@@ -1431,7 +1719,10 @@ components:
         - description
         - durationMinutes
         - promptVersion
+        - callPromptVersion
         - systemPromptTemplate
+        - analysisPromptVersion
+        - analysisPromptTemplate
         - checklist
         - isActive
         - createdAt
@@ -1469,32 +1760,24 @@ components:
         callTemplateName:
           type: string
         callType:
-          type: string
-          enum:
-            - orientation
-            - reminder
-            - wellbeing
-            - reminiscence
+          $ref: "#/components/schemas/CallTypeValue"
         channel:
           type: string
           enum:
             - browser
             - connect
         triggerType:
-          type: string
-          enum:
-            - manual
-            - approved_next_call
+          $ref: "#/components/schemas/CallTriggerTypeValue"
         status:
-          type: string
-          enum:
-            - requested
-            - in_progress
-            - completed
-            - failed
-            - cancelled
+          $ref: "#/components/schemas/CallRunStatusValue"
         sourceVoiceSessionId:
           type: string
+        scheduleWindowStart:
+          type: string
+          format: date-time
+        scheduleWindowEnd:
+          type: string
+          format: date-time
         requestedAt:
           type: string
           format: date-time
@@ -1534,6 +1817,13 @@ components:
           enum:
             - user
             - assistant
+        speakerRole:
+          type: string
+          enum:
+            - patient
+            - agent
+            - caregiver
+            - system
         modality:
           type: string
           enum:
@@ -1556,19 +1846,14 @@ components:
       type: object
       additionalProperties: false
       description: >
-        For manual calls, send exactly one of `callTemplateId` or `callType`.
-        For approved-next-call execution, set `triggerType` to
-        `approved_next_call` and omit both template selectors.
+        For caregiver-requested calls, send exactly one of `callTemplateId` or
+        `callType`. For follow-up execution, set `triggerType` to
+        `follow_up_recommendation` and omit both template selectors.
       properties:
         callTemplateId:
           type: string
         callType:
-          type: string
-          enum:
-            - orientation
-            - reminder
-            - wellbeing
-            - reminiscence
+          $ref: "#/components/schemas/CallTypeValue"
         channel:
           type: string
           enum:
@@ -1577,8 +1862,8 @@ components:
         triggerType:
           type: string
           enum:
-            - manual
-            - approved_next_call
+            - caregiver_requested
+            - follow_up_recommendation
       required: []
     CreateCallResponse:
       type: object
@@ -1609,6 +1894,8 @@ components:
             $ref: "#/components/schemas/CallTranscriptTurn"
         analysis:
           $ref: "#/components/schemas/AnalysisRecord"
+        analysisJob:
+          $ref: "#/components/schemas/AnalysisJob"
       required:
         - callRun
         - transcriptTurns
@@ -1619,151 +1906,178 @@ components:
           $ref: "#/components/schemas/CallRunDetail"
       required:
         - data
-    AnalysisPatientState:
+    SalientEvidence:
       type: object
-      additionalProperties: false
       properties:
-        orientation:
+        quote:
           type: string
-          enum:
-            - good
-            - mixed
-            - poor
-            - unclear
-        mood:
+        reason:
           type: string
-          enum:
-            - positive
-            - neutral
-            - anxious
-            - sad
-            - distressed
-            - unclear
-        engagement:
+      required:
+        - quote
+        - reason
+    AnalysisRiskFlag:
+      type: object
+      properties:
+        flagType:
           type: string
-          enum:
-            - high
-            - medium
-            - low
+        severity:
+          $ref: "#/components/schemas/RiskSeverityValue"
+        evidence:
+          type: string
+        reason:
+          type: string
         confidence:
           type: number
           minimum: 0
           maximum: 1
       required:
-        - orientation
-        - mood
-        - engagement
+        - flagType
+        - severity
         - confidence
-    AnalysisSignals:
+    FollowUpIntent:
       type: object
-      additionalProperties: false
       properties:
-        repetition:
-          type: integer
+        requestedByPatient:
+          type: boolean
+        timeframeBucket:
+          $ref: "#/components/schemas/TimeframeBucketValue"
+        evidence:
+          type: string
+        confidence:
+          type: number
           minimum: 0
-        routine_adherence_issue:
-          type: boolean
-        sleep_concern:
-          type: boolean
-        nutrition_or_hydration_concern:
-          type: boolean
-        possible_safety_concern:
-          type: boolean
-        possible_bpsd_signals:
-          type: array
-          items:
-            type: string
-        social_connection_need:
-          type: boolean
+          maximum: 1
       required:
-        - repetition
-        - routine_adherence_issue
-        - sleep_concern
-        - nutrition_or_hydration_concern
-        - possible_safety_concern
-        - possible_bpsd_signals
-        - social_connection_need
-    AnalysisEvidence:
+        - requestedByPatient
+        - timeframeBucket
+        - confidence
+    NextCallRecommendation:
       type: object
-      additionalProperties: false
       properties:
-        quote:
-          type: string
-        why_it_matters:
-          type: string
-      required:
-        - quote
-        - why_it_matters
-    RecommendedNextCall:
-      type: object
-      additionalProperties: false
-      properties:
-        type:
-          type: string
-          enum:
-            - orientation
-            - reminder
-            - wellbeing
-            - reminiscence
-        timing:
-          type: string
-        duration_minutes:
-          type: integer
-          minimum: 1
-          maximum: 30
+        callType:
+          $ref: "#/components/schemas/CallTypeValue"
+        windowBucket:
+          $ref: "#/components/schemas/TimeframeBucketValue"
         goal:
           type: string
       required:
-        - type
-        - timing
-        - duration_minutes
+        - callType
+        - windowBucket
         - goal
-    AnalysisPayload:
+    ScreeningAnalysis:
       type: object
-      additionalProperties: false
       properties:
-        call_type_completed:
-          type: string
-          enum:
-            - orientation
-            - reminder
-            - wellbeing
-            - reminiscence
-        patient_state:
-          $ref: "#/components/schemas/AnalysisPatientState"
-        signals:
-          $ref: "#/components/schemas/AnalysisSignals"
-        evidence:
+        screeningItemsAdministered:
           type: array
           items:
-            $ref: "#/components/schemas/AnalysisEvidence"
-        dashboard_summary:
+            type: string
+        screeningCompletionStatus:
+          $ref: "#/components/schemas/ScreeningCompletionStatusValue"
+        screeningScoreRaw:
           type: string
-        caregiver_summary:
+        screeningScoreInterpretation:
+          $ref: "#/components/schemas/ScreeningScoreInterpretationValue"
+        screeningFlags:
+          type: array
+          items:
+            type: string
+        suggestedRescreenWindowBucket:
+          $ref: "#/components/schemas/TimeframeBucketValue"
+      required:
+        - screeningItemsAdministered
+        - screeningCompletionStatus
+        - screeningFlags
+    CheckInAnalysis:
+      type: object
+      properties:
+        reportedDayOverview:
           type: string
-        recommended_next_call:
-          $ref: "#/components/schemas/RecommendedNextCall"
-        escalation_level:
+        foodAndHydration:
           type: string
-          enum:
-            - none
-            - caregiver_soon
-            - caregiver_now
-            - clinical_review
-        uncertainties:
+        medicationMentions:
+          type: array
+          items:
+            type: string
+        moodSignals:
+          type: array
+          items:
+            type: string
+        routineAdherence:
+          type: string
+        socialContactMentions:
+          type: array
+          items:
+            type: string
+        followUpRequestDetected:
+          type: boolean
+      required:
+        - medicationMentions
+        - moodSignals
+        - socialContactMentions
+        - followUpRequestDetected
+    ReminiscenceAnalysis:
+      type: object
+      properties:
+        topicsDiscussed:
+          type: array
+          items:
+            type: string
+        peopleMentioned:
+          type: array
+          items:
+            type: string
+        positiveEngagementSignals:
+          type: array
+          items:
+            type: string
+        distressOrTriggerSignals:
+          type: array
+          items:
+            type: string
+        futureReminiscenceCandidates:
           type: array
           items:
             type: string
       required:
-        - call_type_completed
-        - patient_state
-        - signals
-        - evidence
-        - dashboard_summary
-        - caregiver_summary
-        - recommended_next_call
-        - escalation_level
-        - uncertainties
+        - topicsDiscussed
+        - peopleMentioned
+        - positiveEngagementSignals
+        - distressOrTriggerSignals
+        - futureReminiscenceCandidates
+    AnalysisPayload:
+      type: object
+      properties:
+        summary:
+          type: string
+        salientEvidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/SalientEvidence"
+        riskFlags:
+          type: array
+          items:
+            $ref: "#/components/schemas/AnalysisRiskFlag"
+        escalationLevel:
+          $ref: "#/components/schemas/EscalationLevelValue"
+        caregiverReviewReason:
+          type: string
+        followUpIntent:
+          $ref: "#/components/schemas/FollowUpIntent"
+        nextCallRecommendation:
+          $ref: "#/components/schemas/NextCallRecommendation"
+        screening:
+          $ref: "#/components/schemas/ScreeningAnalysis"
+        checkIn:
+          $ref: "#/components/schemas/CheckInAnalysis"
+        reminiscence:
+          $ref: "#/components/schemas/ReminiscenceAnalysis"
+      required:
+        - summary
+        - salientEvidence
+        - riskFlags
+        - escalationLevel
+        - followUpIntent
     RiskFlag:
       type: object
       properties:
@@ -1774,14 +2088,10 @@ components:
         flagType:
           type: string
         severity:
+          $ref: "#/components/schemas/RiskSeverityValue"
+        evidence:
           type: string
-          enum:
-            - info
-            - watch
-            - urgent
-        evidenceQuote:
-          type: string
-        whyItMatters:
+        reason:
           type: string
         confidence:
           type: number
@@ -1804,11 +2114,24 @@ components:
           type: string
         callRunId:
           type: string
+        callTemplateId:
+          type: string
         modelId:
+          type: string
+        modelProvider:
+          type: string
+        modelName:
+          type: string
+        callPromptVersion:
+          type: string
+        analysisPromptVersion:
           type: string
         schemaVersion:
           type: string
-          example: v1
+          example: v2
+        generatedAt:
+          type: string
+          format: date-time
         result:
           $ref: "#/components/schemas/AnalysisPayload"
         riskFlags:
@@ -1825,7 +2148,12 @@ components:
         - id
         - callRunId
         - modelId
+        - modelProvider
+        - modelName
+        - callPromptVersion
+        - analysisPromptVersion
         - schemaVersion
+        - generatedAt
         - result
         - riskFlags
         - createdAt
@@ -1835,6 +2163,61 @@ components:
       properties:
         data:
           $ref: "#/components/schemas/AnalysisRecord"
+      required:
+        - data
+    AnalysisJob:
+      type: object
+      properties:
+        id:
+          type: string
+        callRunId:
+          type: string
+        status:
+          $ref: "#/components/schemas/AnalysisJobStatusValue"
+        attemptCount:
+          type: integer
+          minimum: 0
+        lastError:
+          type: string
+        lockedAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: string
+          format: date-time
+        finishedAt:
+          type: string
+          format: date-time
+        analysisPromptVersion:
+          type: string
+        schemaVersion:
+          type: string
+        modelProvider:
+          type: string
+        modelName:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - callRunId
+        - status
+        - attemptCount
+        - analysisPromptVersion
+        - schemaVersion
+        - modelProvider
+        - modelName
+        - createdAt
+        - updatedAt
+    AnalysisJobResponse:
+      type: object
+      properties:
+        data:
+          $ref: "#/components/schemas/AnalysisJob"
       required:
         - data
     NextCallPlan:
@@ -1853,14 +2236,15 @@ components:
         callTemplateName:
           type: string
         callType:
-          type: string
-          enum:
-            - orientation
-            - reminder
-            - wellbeing
-            - reminiscence
+          $ref: "#/components/schemas/CallTypeValue"
         suggestedTimeNote:
           type: string
+        suggestedWindowStartAt:
+          type: string
+          format: date-time
+        suggestedWindowEndAt:
+          type: string
+          format: date-time
         plannedFor:
           type: string
           format: date-time
@@ -1869,6 +2253,12 @@ components:
           minimum: 1
           maximum: 30
         goal:
+          type: string
+        followUpRequestedByPatient:
+          type: boolean
+        followUpEvidence:
+          type: string
+        caregiverReviewReason:
           type: string
         approvalStatus:
           type: string
@@ -1907,6 +2297,7 @@ components:
         - callType
         - durationMinutes
         - goal
+        - followUpRequestedByPatient
         - approvalStatus
         - createdAt
         - updatedAt
@@ -1958,6 +2349,8 @@ components:
           $ref: "#/components/schemas/Caregiver"
         consent:
           $ref: "#/components/schemas/ConsentState"
+        screeningSchedule:
+          $ref: "#/components/schemas/ScreeningSchedule"
         latestCall:
           $ref: "#/components/schemas/CallRun"
         recentCalls:
