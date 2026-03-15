@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
-import { PhoneOutgoing, CheckCircle2 } from "lucide-react";
+import { PhoneOutgoing } from "lucide-react";
 import { listCallTemplates, createPatientCall } from "../api/admin";
-import type { CallTemplate, Patient } from "../api/contracts";
+import { LiveCallPanel } from "../components/LiveCallPanel";
+import type { CallTemplate, Patient, VoiceSessionDescriptor } from "../api/contracts";
 
 interface Props {
   patientId: string;
@@ -15,7 +16,7 @@ export function ScheduleCall({ patientId, patient, onCallStarted }: Props) {
   const [isLoadingTemplates, setIsLoadingTemplates] = useState(true);
   const [isStarting, setIsStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
+  const [voiceSession, setVoiceSession] = useState<VoiceSessionDescriptor | null>(null);
 
   useEffect(() => {
     listCallTemplates()
@@ -33,13 +34,17 @@ export function ScheduleCall({ patientId, patient, onCallStarted }: Props) {
     setIsStarting(true);
     setError(null);
     try {
-      await createPatientCall(patientId, {
+      const response = await createPatientCall(patientId, {
         callTemplateId: selectedTemplateId,
         channel: "browser",
         triggerType: "manual",
       });
-      setSuccess(true);
-      setTimeout(onCallStarted, 1500);
+      if (response.voiceSession) {
+        setVoiceSession(response.voiceSession);
+      } else {
+        // No voice session returned — fall back to redirect
+        onCallStarted();
+      }
     } catch (err: any) {
       setError(err.message ?? "Failed to start call");
     } finally {
@@ -47,12 +52,20 @@ export function ScheduleCall({ patientId, patient, onCallStarted }: Props) {
     }
   }
 
-  if (success) {
+  // Live call view
+  if (voiceSession) {
     return (
-      <div className="p-8 max-w-2xl flex flex-col items-center justify-center gap-4 min-h-64">
-        <CheckCircle2 size={32} className="text-green-500" strokeWidth={1.75} />
-        <p className="text-base font-medium text-gray-900">Call started successfully</p>
-        <p className="text-sm text-gray-400">Redirecting to recent calls...</p>
+      <div className="p-8 max-w-2xl">
+        <div className="mb-6">
+          <h1 className="text-2xl font-semibold text-gray-900">Live Call</h1>
+          <p className="mt-0.5 text-sm text-gray-400">
+            Browser call in progress with {patient?.preferredName ?? patient?.displayName ?? "patient"}
+          </p>
+        </div>
+        <LiveCallPanel
+          voiceSession={voiceSession}
+          onSessionEnded={onCallStarted}
+        />
       </div>
     );
   }

@@ -203,8 +203,6 @@ func (s *PostgresStore) CreatePatient(ctx context.Context, input CreatePatientRe
 		) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now())
 	`, patientID, strings.TrimSpace(input.PrimaryCaregiverID), strings.TrimSpace(input.DisplayName), strings.TrimSpace(input.PreferredName), nullableString(input.PhoneE164), strings.TrimSpace(input.Timezone), nullableString(input.Notes), marshalStringList(input.RoutineAnchors), marshalStringList(input.FavoriteTopics), marshalStringList(input.CalmingCues), marshalStringList(input.TopicsToAvoid)); execErr != nil {
 		switch {
-		case isUniqueViolation(execErr):
-			err = ErrPatientAlreadyAssigned
 		case isForeignKeyViolation(execErr):
 			err = ErrCaregiverNotFound
 		default:

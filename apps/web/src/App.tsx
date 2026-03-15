@@ -1,17 +1,21 @@
 import { useState, useEffect, useCallback } from "react";
-import { Radio, ChevronDown } from "lucide-react";
+import { Radio, UserPlus, LogOut } from "lucide-react";
 import { Sidebar } from "./components/Sidebar";
 import { Dashboard } from "./pages/Dashboard";
 import { Patients } from "./pages/Patients";
 import { ScheduleCall } from "./pages/ScheduleCall";
 import { RecentCalls } from "./pages/RecentCalls";
 import { ApiSurface } from "./pages/ApiSurface";
+import { CreatePatient } from "./pages/CreatePatient";
 import { getAdminSession, loginAdmin, getDashboard, listPatients } from "./api/admin";
 import { useStoredString } from "./app/storage";
 import { STORAGE_KEYS } from "./app/constants";
 import type { AdminSession, DashboardSnapshot, Patient } from "./api/contracts";
 
 export type Page = "dashboard" | "patients" | "schedule-call" | "recent-calls" | "api-surface";
+
+// Screens outside the main console
+type PreConsoleScreen = "picker" | "create-patient";
 
 export default function App() {
   const [currentPage, setCurrentPage] = useState<Page>("dashboard");
@@ -24,8 +28,12 @@ export default function App() {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
+  // Pre-console screen
+  const [preScreen, setPreScreen] = useState<PreConsoleScreen>("picker");
+
   // Patient selection
   const [patientId, setPatientId] = useStoredString(STORAGE_KEYS.patientId);
+  const [caregiverId, setCaregiverId] = useStoredString(STORAGE_KEYS.caregiverId);
   const [patientList, setPatientList] = useState<Patient[]>([]);
   const [patientListLoading, setPatientListLoading] = useState(false);
 
@@ -41,7 +49,6 @@ export default function App() {
       .finally(() => setAuthChecked(true));
   }, []);
 
-  // Load patient list after login
   useEffect(() => {
     if (!session) return;
     setPatientListLoading(true);
@@ -57,6 +64,7 @@ export default function App() {
     try {
       const data = await getDashboard(pid);
       setDashboard(data);
+      if (data.caregiver?.id) setCaregiverId(data.caregiver.id);
     } catch (err: any) {
       setDashboardError(err.message ?? "Failed to load dashboard");
     } finally {
@@ -84,6 +92,12 @@ export default function App() {
     }
   }
 
+  function selectPatient(id: string) {
+    setPatientId(id);
+    setCurrentPage("dashboard");
+  }
+
+  // ── Loading ──────────────────────────────────────────────────────
   if (!authChecked) {
     return (
       <div className="flex h-screen items-center justify-center text-gray-400 text-sm">
@@ -92,6 +106,7 @@ export default function App() {
     );
   }
 
+  // ── Login ────────────────────────────────────────────────────────
   if (!session) {
     return (
       <div className="flex h-screen items-center justify-center bg-[#f7f8fa]">
@@ -137,8 +152,24 @@ export default function App() {
     );
   }
 
-  // Patient picker — shown on first load or when no patient selected
+  // ── Patient picker / Add patient (pre-console screens) ───────────
   if (!patientId) {
+    if (preScreen === "create-patient") {
+      return (
+        <div className="min-h-screen bg-[#f7f8fa] overflow-y-auto">
+          <CreatePatient
+            caregiverId={caregiverId}
+            onCreated={(patient) => {
+              setPatientList((prev) => [...prev, patient]);
+              selectPatient(patient.id);
+            }}
+            onCancel={() => setPreScreen("picker")}
+          />
+        </div>
+      );
+    }
+
+    // Patient picker
     return (
       <div className="flex h-screen items-center justify-center bg-[#f7f8fa]">
         <div className="bg-white border border-gray-200 rounded-2xl p-8 w-full max-w-sm">
@@ -146,18 +177,18 @@ export default function App() {
             <Radio size={16} className="text-white" />
           </div>
           <h2 className="text-lg font-semibold text-gray-900 mb-1">Select a patient</h2>
-          <p className="text-sm text-gray-400 mb-6">Choose the patient you'd like to manage.</p>
+          <p className="text-sm text-gray-400 mb-6">
+            Choose the patient you'd like to manage.
+          </p>
 
           {patientListLoading ? (
-            <p className="text-sm text-gray-400">Loading patients...</p>
-          ) : patientList.length === 0 ? (
-            <p className="text-sm text-gray-400 italic">No patients found. Create one first.</p>
+            <p className="text-sm text-gray-400">Loading...</p>
           ) : (
             <div className="space-y-2">
               {patientList.map((p) => (
                 <button
                   key={p.id}
-                  onClick={() => setPatientId(p.id)}
+                  onClick={() => selectPatient(p.id)}
                   className="w-full flex items-center justify-between px-4 py-3 bg-white border border-gray-200 rounded-xl hover:border-gray-900 hover:bg-gray-50 transition-colors text-left"
                 >
                   <div>
@@ -175,6 +206,18 @@ export default function App() {
                   </span>
                 </button>
               ))}
+
+              {patientList.length === 0 && (
+                <p className="text-sm text-gray-400 italic text-center py-2">No patients yet.</p>
+              )}
+
+              <button
+                onClick={() => setPreScreen("create-patient")}
+                className="w-full flex items-center justify-center gap-2 py-2.5 border border-dashed border-gray-300 rounded-xl text-sm text-gray-500 hover:border-gray-900 hover:text-gray-900 transition-colors mt-1"
+              >
+                <UserPlus size={14} strokeWidth={2} />
+                Add a new patient
+              </button>
             </div>
           )}
         </div>
@@ -182,7 +225,7 @@ export default function App() {
     );
   }
 
-  // Patient switcher in the sidebar header area (when multiple patients exist)
+  // ── Console ──────────────────────────────────────────────────────
   const currentPatient = patientList.find((p) => p.id === patientId);
 
   function renderPage() {
@@ -235,19 +278,24 @@ export default function App() {
         collapsed={collapsed}
         onToggleCollapse={() => setCollapsed(!collapsed)}
         patientSwitcher={
-          patientList.length > 1 ? (
-            <button
-              onClick={() => {
-                setPatientId("");
-                setDashboard(null);
-              }}
-              className="w-full flex items-center gap-2 px-2.5 py-2 rounded-md text-xs text-gray-500 hover:bg-gray-50 hover:text-gray-800 transition-colors"
-            >
-              <span className="truncate flex-1 text-left">
-                {currentPatient?.displayName ?? "Switch patient"}
-              </span>
-              <ChevronDown size={12} className="flex-shrink-0" />
-            </button>
+          !collapsed ? (
+            <div className="px-2.5 py-2">
+              <p className="text-xs text-gray-400 truncate mb-1">
+                {currentPatient?.displayName ?? "Patient"}
+              </p>
+              <button
+                onClick={() => {
+                  setPatientId("");
+                  setDashboard(null);
+                  setPreScreen("picker");
+                  setCurrentPage("dashboard");
+                }}
+                className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-700 transition-colors"
+              >
+                <LogOut size={11} strokeWidth={2} />
+                Change patient
+              </button>
+            </div>
           ) : undefined
         }
       />

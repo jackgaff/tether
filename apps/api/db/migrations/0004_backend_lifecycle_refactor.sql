@@ -104,6 +104,12 @@ alter table call_runs
 	add column if not exists schedule_window_start timestamptz,
 	add column if not exists schedule_window_end timestamptz;
 
+alter table call_runs
+	drop constraint if exists call_runs_trigger_type_check;
+
+alter table call_runs
+	drop constraint if exists call_runs_status_check;
+
 update call_runs cr
 set call_type = ct.call_type
 from call_templates ct
@@ -124,12 +130,6 @@ where call_type in ('orientation', 'reminder', 'wellbeing');
 
 alter table call_runs
 	alter column call_type set not null;
-
-alter table call_runs
-	drop constraint if exists call_runs_trigger_type_check;
-
-alter table call_runs
-	drop constraint if exists call_runs_status_check;
 
 alter table call_runs
 	add constraint call_runs_trigger_type_check
