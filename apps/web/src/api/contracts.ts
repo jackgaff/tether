@@ -10,6 +10,29 @@ export interface ApiEnvelope<T> {
   };
 }
 
+export type CallType = "screening" | "check_in" | "reminiscence";
+export type LegacyCallType = CallType | "orientation" | "reminder" | "wellbeing";
+export type CallTriggerType =
+  | "caregiver_requested"
+  | "scheduled"
+  | "follow_up_recommendation";
+export type LegacyCallTriggerType = CallTriggerType | "manual" | "approved_next_call";
+export type CallRunStatus =
+  | "scheduled"
+  | "requested"
+  | "in_progress"
+  | "completed"
+  | "failed"
+  | "cancelled";
+export type AnalysisJobStatus = "pending" | "running" | "succeeded" | "failed";
+export type TimeframeBucket =
+  | "same_day"
+  | "tomorrow"
+  | "few_days"
+  | "next_week"
+  | "two_weeks"
+  | "unspecified";
+
 export interface HealthSnapshot {
   status: string;
   service: string;
@@ -34,6 +57,34 @@ export interface Caregiver {
   updatedAt: string;
 }
 
+export interface FamilyMember {
+  name: string;
+  relation: string;
+  notes?: string;
+}
+
+export interface LifeEvent {
+  label: string;
+  approximateDate?: string;
+  notes?: string;
+}
+
+export interface MemoryProfile {
+  likes: string[];
+  familyMembers: FamilyMember[];
+  lifeEvents: LifeEvent[];
+  reminiscenceNotes?: string;
+}
+
+export interface ConversationGuidance {
+  preferredGreetingStyle?: string;
+  calmingTopics: string[];
+  upsettingTopics: string[];
+  hearingOrPacingNotes?: string;
+  bestTimeOfDay?: string;
+  doNotMention: string[];
+}
+
 export interface Patient {
   id: string;
   primaryCaregiverId: string;
@@ -49,6 +100,22 @@ export interface Patient {
   favoriteTopics: string[];
   calmingCues: string[];
   topicsToAvoid: string[];
+  memoryProfile: MemoryProfile;
+  conversationGuidance: ConversationGuidance;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ScreeningSchedule {
+  patientId: string;
+  enabled: boolean;
+  cadence: "weekly" | "biweekly";
+  timezone: string;
+  preferredWeekday: number;
+  preferredLocalTime: string;
+  nextDueAt?: string;
+  lastScheduledWindowStart?: string;
+  lastScheduledWindowEnd?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -69,11 +136,14 @@ export interface CallTemplate {
   id: string;
   slug: string;
   displayName: string;
-  callType: "orientation" | "reminder" | "wellbeing" | "reminiscence";
+  callType: CallType;
   description: string;
   durationMinutes: number;
   promptVersion: string;
+  callPromptVersion: string;
   systemPromptTemplate: string;
+  analysisPromptVersion: string;
+  analysisPromptTemplate: string;
   checklist: unknown;
   isActive: boolean;
   createdAt: string;
@@ -105,11 +175,13 @@ export interface CallRun {
   callTemplateId: string;
   callTemplateSlug?: string;
   callTemplateName?: string;
-  callType: "orientation" | "reminder" | "wellbeing" | "reminiscence";
+  callType: CallType;
   channel: "browser" | "connect";
-  triggerType: "manual" | "approved_next_call";
-  status: "requested" | "in_progress" | "completed" | "failed" | "cancelled";
+  triggerType: CallTriggerType;
+  status: CallRunStatus;
   sourceVoiceSessionId?: string;
+  scheduleWindowStart?: string;
+  scheduleWindowEnd?: string;
   requestedAt: string;
   startedAt?: string;
   endedAt?: string;
@@ -121,51 +193,90 @@ export interface CallRun {
 export interface CallTranscriptTurn {
   sequenceNo: number;
   direction: "user" | "assistant";
+  speakerRole?: "patient" | "agent" | "caregiver" | "system";
   modality: "audio" | "text";
   text: string;
   occurredAt: string;
   stopReason?: string;
 }
 
-export interface AnalysisPatientState {
-  orientation: "good" | "mixed" | "poor" | "unclear";
-  mood: "positive" | "neutral" | "anxious" | "sad" | "distressed" | "unclear";
-  engagement: "high" | "medium" | "low";
+export interface SalientEvidence {
+  quote: string;
+  reason: string;
+}
+
+export interface StructuredRiskFlag {
+  flagType: string;
+  severity: "info" | "watch" | "urgent";
+  evidence?: string;
+  reason?: string;
+  whyItMatters?: string;
   confidence: number;
 }
 
-export interface AnalysisSignals {
-  repetition: number;
-  routine_adherence_issue: boolean;
-  sleep_concern: boolean;
-  nutrition_or_hydration_concern: boolean;
-  possible_safety_concern: boolean;
-  possible_bpsd_signals: string[];
-  social_connection_need: boolean;
+export interface FollowUpIntent {
+  requestedByPatient: boolean;
+  timeframeBucket: TimeframeBucket;
+  evidence?: string;
+  confidence: number;
 }
 
-export interface AnalysisEvidence {
-  quote: string;
-  why_it_matters: string;
-}
-
-export interface RecommendedNextCall {
-  type: "orientation" | "reminder" | "wellbeing" | "reminiscence";
-  timing: string;
-  duration_minutes: number;
+export interface NextCallRecommendation {
+  callType: CallType;
+  windowBucket: TimeframeBucket;
   goal: string;
 }
 
+export interface ScreeningAnalysis {
+  screeningItemsAdministered: string[];
+  screeningCompletionStatus: "complete" | "partial" | "aborted";
+  screeningScoreRaw?: string;
+  screeningScoreInterpretation?:
+    | "routine_follow_up"
+    | "caregiver_review_suggested"
+    | "clinical_review_suggested"
+    | "incomplete";
+  screeningFlags: string[];
+  suggestedRescreenWindowBucket?: TimeframeBucket;
+}
+
+export interface CheckInAnalysis {
+  reportedDayOverview?: string;
+  foodAndHydration?: string;
+  medicationMentions: string[];
+  moodSignals: string[];
+  routineAdherence?: string;
+  socialContactMentions: string[];
+  followUpRequestDetected: boolean;
+}
+
+export interface ReminiscenceAnalysis {
+  topicsDiscussed: string[];
+  peopleMentioned: string[];
+  positiveEngagementSignals: string[];
+  distressOrTriggerSignals: string[];
+  futureReminiscenceCandidates: string[];
+}
+
 export interface AnalysisPayload {
-  call_type_completed: "orientation" | "reminder" | "wellbeing" | "reminiscence";
-  patient_state: AnalysisPatientState;
-  signals: AnalysisSignals;
-  evidence: AnalysisEvidence[];
-  dashboard_summary: string;
-  caregiver_summary: string;
-  recommended_next_call: RecommendedNextCall;
-  escalation_level: "none" | "caregiver_soon" | "caregiver_now" | "clinical_review";
-  uncertainties: string[];
+  summary: string;
+  salientEvidence: SalientEvidence[];
+  riskFlags: StructuredRiskFlag[];
+  escalationLevel: "none" | "caregiver_soon" | "caregiver_now" | "clinical_review";
+  caregiverReviewReason?: string;
+  followUpIntent: FollowUpIntent;
+  nextCallRecommendation?: NextCallRecommendation;
+  screening?: ScreeningAnalysis;
+  checkIn?: CheckInAnalysis;
+  reminiscence?: ReminiscenceAnalysis;
+  dashboard_summary?: string;
+  caregiver_summary?: string;
+  patient_state: {
+    orientation: string;
+    mood: string;
+    engagement: string;
+    confidence: number;
+  };
 }
 
 export interface RiskFlag {
@@ -173,7 +284,8 @@ export interface RiskFlag {
   analysisResultId: string;
   flagType: string;
   severity: "info" | "watch" | "urgent";
-  evidenceQuote?: string;
+  evidence?: string;
+  reason?: string;
   whyItMatters?: string;
   confidence: number;
   createdAt: string;
@@ -182,10 +294,33 @@ export interface RiskFlag {
 export interface AnalysisRecord {
   id: string;
   callRunId: string;
+  callTemplateId?: string;
   modelId: string;
+  modelProvider: string;
+  modelName: string;
+  callPromptVersion: string;
+  analysisPromptVersion: string;
   schemaVersion: string;
+  generatedAt: string;
   result: AnalysisPayload;
   riskFlags: RiskFlag[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AnalysisJob {
+  id: string;
+  callRunId: string;
+  status: AnalysisJobStatus;
+  attemptCount: number;
+  lastError?: string;
+  lockedAt?: string;
+  startedAt?: string;
+  finishedAt?: string;
+  analysisPromptVersion: string;
+  schemaVersion: string;
+  modelProvider: string;
+  modelName: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -197,11 +332,16 @@ export interface NextCallPlan {
   callTemplateId: string;
   callTemplateSlug?: string;
   callTemplateName?: string;
-  callType: "orientation" | "reminder" | "wellbeing" | "reminiscence";
+  callType: CallType;
   suggestedTimeNote?: string;
+  suggestedWindowStartAt?: string;
+  suggestedWindowEndAt?: string;
   plannedFor?: string;
   durationMinutes: number;
   goal: string;
+  followUpRequestedByPatient: boolean;
+  followUpEvidence?: string;
+  caregiverReviewReason?: string;
   approvalStatus:
     | "pending_approval"
     | "approved"
@@ -223,6 +363,7 @@ export interface DashboardSnapshot {
   patient: Patient;
   caregiver: Caregiver;
   consent: ConsentState;
+  screeningSchedule?: ScreeningSchedule;
   latestCall?: CallRun;
   recentCalls: CallRun[];
   latestAnalysis?: AnalysisRecord;
@@ -239,6 +380,7 @@ export interface CallRunDetail {
   callRun: CallRun;
   transcriptTurns: CallTranscriptTurn[];
   analysis?: AnalysisRecord;
+  analysisJob?: AnalysisJob;
 }
 
 export interface LoginAdminInput {
@@ -264,6 +406,16 @@ export interface PatientInput {
   favoriteTopics: string[];
   calmingCues: string[];
   topicsToAvoid: string[];
+  memoryProfile?: MemoryProfile;
+  conversationGuidance?: ConversationGuidance;
+}
+
+export interface ScreeningScheduleInput {
+  enabled: boolean;
+  cadence: ScreeningSchedule["cadence"];
+  timezone: string;
+  preferredWeekday: number;
+  preferredLocalTime: string;
 }
 
 export interface ConsentInput {
@@ -278,9 +430,9 @@ export interface PausePatientInput {
 
 export interface CreatePatientCallInput {
   callTemplateId?: string;
-  callType?: CallRun["callType"];
-  channel: "browser";
-  triggerType?: CallRun["triggerType"];
+  callType?: LegacyCallType;
+  channel: "browser" | "connect";
+  triggerType?: LegacyCallTriggerType;
 }
 
 export interface UpdateNextCallInput {

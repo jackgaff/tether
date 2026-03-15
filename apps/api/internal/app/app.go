@@ -20,10 +20,11 @@ import (
 )
 
 type App struct {
-	Config   config.Config
-	Handler  http.Handler
-	db       *sql.DB
-	sessions *voice.SessionManager
+	Config           config.Config
+	Handler          http.Handler
+	db               *sql.DB
+	sessions         *voice.SessionManager
+	backgroundCancel context.CancelFunc
 }
 
 func New(ctx context.Context, cfg config.Config) (*App, error) {
@@ -68,9 +69,18 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	)
 	voiceHandler := voice.NewHandler(voiceService, cfg.AllowedFrontendOrigins)
 	adminStore := admin.NewPostgresStore(database)
-	adminService := admin.NewService(adminStore, voiceService, admin.NewBedrockAnalyzer(bedrockClient, cfg.NovaAnalysisModelID), cfg.NovaAnalysisModelID)
+	adminAnalyzer := admin.NewBedrockAnalyzer(bedrockClient, cfg.NovaAnalysisModelID)
+	adminService := admin.NewService(adminStore, voiceService, cfg.NovaAnalysisModelID)
 	adminSessions := adminsession.New(cfg)
 	adminHandler := admin.NewHandler(adminStore, adminService, adminSessions)
+
+	backgroundCtx, backgroundCancel := context.WithCancel(context.Background())
+	if cfg.AnalysisWorkerEnabled {
+		go admin.NewAnalysisWorker(adminStore, adminAnalyzer).Run(backgroundCtx, cfg.AnalysisWorkerPollInterval)
+	}
+	if cfg.ScreeningSchedulerEnabled {
+		go admin.NewScreeningScheduler(adminStore).Run(backgroundCtx, cfg.ScreeningSchedulerPollInterval)
+	}
 
 	return &App{
 		Config: cfg,
@@ -81,12 +91,17 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 			Admin:       adminHandler,
 			AdminAuth:   adminSessions.Middleware(),
 		}),
-		db:       database,
-		sessions: sessionManager,
+		db:               database,
+		sessions:         sessionManager,
+		backgroundCancel: backgroundCancel,
 	}, nil
 }
 
 func (a *App) Shutdown(ctx context.Context) error {
+	if a.backgroundCancel != nil {
+		a.backgroundCancel()
+	}
+
 	if a.sessions != nil {
 		_ = a.sessions.CloseAll()
 	}

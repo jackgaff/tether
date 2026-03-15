@@ -108,6 +108,7 @@ type TranscriptTurn struct {
 	VoiceSessionID   string
 	SequenceNo       int
 	Direction        string
+	SpeakerRole      string
 	Modality         string
 	TranscriptText   string
 	BedrockSessionID string

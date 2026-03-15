@@ -37,51 +37,7 @@ func (a *BedrockAnalyzer) Analyze(ctx context.Context, promptContext AnalysisPro
 		ModelId: aws.String(a.modelID),
 		System: []bedrocktypes.SystemContentBlock{
 			&bedrocktypes.SystemContentBlockMemberText{
-				Value: `You are a dementia-support analysis agent.
-Return JSON only.
-
-Use this exact schema:
-{
-  "call_type_completed": "orientation|reminder|wellbeing|reminiscence",
-  "patient_state": {
-    "orientation": "good|mixed|poor|unclear",
-    "mood": "positive|neutral|anxious|sad|distressed|unclear",
-    "engagement": "high|medium|low",
-    "confidence": 0.0
-  },
-  "signals": {
-    "repetition": 0,
-    "routine_adherence_issue": false,
-    "sleep_concern": false,
-    "nutrition_or_hydration_concern": false,
-    "possible_safety_concern": false,
-    "possible_bpsd_signals": [],
-    "social_connection_need": false
-  },
-  "evidence": [
-    {
-      "quote": "",
-      "why_it_matters": ""
-    }
-  ],
-  "dashboard_summary": "",
-  "caregiver_summary": "",
-  "recommended_next_call": {
-    "type": "orientation|reminder|wellbeing|reminiscence",
-    "timing": "",
-    "duration_minutes": 0,
-    "goal": ""
-  },
-  "escalation_level": "none|caregiver_soon|caregiver_now|clinical_review",
-  "uncertainties": []
-}
-
-Rules:
-- Do not diagnose.
-- Do not suggest medication changes.
-- Be conservative.
-- Ground concerns in transcript evidence.
-- If evidence is weak, say so in uncertainties.`,
+				Value: analysisSystemPrompt(promptContext.CallRun.CallType),
 			},
 		},
 		Messages: []bedrocktypes.Message{
@@ -89,14 +45,14 @@ Rules:
 				Role: bedrocktypes.ConversationRoleUser,
 				Content: []bedrocktypes.ContentBlock{
 					&bedrocktypes.ContentBlockMemberText{
-						Value: "Analyze this completed call context and return JSON only:\n\n" + string(contextJSON),
+						Value: "Return JSON only for this completed call context:\n\n" + string(contextJSON),
 					},
 				},
 			},
 		},
 		InferenceConfig: &bedrocktypes.InferenceConfiguration{
-			MaxTokens:   aws.Int32(1400),
-			Temperature: aws.Float32(0.2),
+			MaxTokens:   aws.Int32(1800),
+			Temperature: aws.Float32(0.1),
 		},
 	})
 	if err != nil {
@@ -119,6 +75,64 @@ Rules:
 	}
 
 	return payload, nil
+}
+
+func analysisSystemPrompt(callType string) string {
+	var specific string
+	switch callType {
+	case CallTypeScreening:
+		specific = `
+- Include a screening object.
+- screening.screeningCompletionStatus must be complete, partial, or aborted.
+- screening.screeningScoreInterpretation must be one of routine_follow_up, caregiver_review_suggested, clinical_review_suggested, or incomplete.
+- Do not diagnose. Use observational language only.`
+	case CallTypeCheckIn:
+		specific = `
+- Include a checkIn object.
+- Capture food, hydration, mood, routine, social contact, and any explicit request for another check-in.
+- followUpIntent.requestedByPatient should only be true when the transcript clearly supports it.`
+	case CallTypeReminiscence:
+		specific = `
+- Include a reminiscence object.
+- Focus on comfort, distress triggers, people/topics mentioned, and future supportive reminiscence ideas.
+- Avoid framing memory changes as diagnosis or stage assessment.`
+	default:
+		specific = ""
+	}
+
+	return `You are Echo's structured extraction worker.
+Return JSON only.
+
+Rules:
+- Be conservative and non-diagnostic.
+- Ground every concern in transcript evidence.
+- Never suggest medication changes.
+- Do not invent exact dates or times.
+- Use timeframe buckets only: same_day, tomorrow, few_days, next_week, two_weeks, unspecified.
+- Use call types only: screening, check_in, reminiscence.
+- Use escalation levels only: none, caregiver_soon, caregiver_now, clinical_review.
+- Use risk severities only: info, watch, urgent.
+
+Required shape:
+{
+  "summary": "",
+  "salientEvidence": [{"quote": "", "reason": ""}],
+  "riskFlags": [{"flagType": "", "severity": "info|watch|urgent", "evidence": "", "reason": "", "confidence": 0.0}],
+  "escalationLevel": "none|caregiver_soon|caregiver_now|clinical_review",
+  "caregiverReviewReason": "",
+  "followUpIntent": {
+    "requestedByPatient": false,
+    "timeframeBucket": "same_day|tomorrow|few_days|next_week|two_weeks|unspecified",
+    "evidence": "",
+    "confidence": 0.0
+  },
+  "nextCallRecommendation": {
+    "callType": "screening|check_in|reminiscence",
+    "windowBucket": "same_day|tomorrow|few_days|next_week|two_weeks|unspecified",
+    "goal": ""
+  }
+}
+` + specific
 }
 
 func readConverseTextOutput(output *bedrockruntime.ConverseOutput) (string, error) {

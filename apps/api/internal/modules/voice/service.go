@@ -462,6 +462,7 @@ func (r *runtimeSession) processModelPayload(ctx context.Context, payload []byte
 				VoiceSessionID:   r.sessionID,
 				SequenceNo:       sequenceNo,
 				Direction:        state.Direction,
+				SpeakerRole:      mapSpeakerRole(state.Direction),
 				Modality:         state.Modality,
 				TranscriptText:   finalText,
 				BedrockSessionID: state.BedrockSessionID,
@@ -573,6 +574,7 @@ func (r *runtimeSession) persistClientTextTurn(ctx context.Context, text string)
 		VoiceSessionID:  r.sessionID,
 		SequenceNo:      sequenceNo,
 		Direction:       "user",
+		SpeakerRole:     "patient",
 		Modality:        "text",
 		TranscriptText:  text,
 		PromptName:      r.promptName,
@@ -751,6 +753,15 @@ func mapCallRunStatus(sessionStatus string) string {
 		return "completed"
 	default:
 		return "failed"
+	}
+}
+
+func mapSpeakerRole(direction string) string {
+	switch direction {
+	case "assistant":
+		return "agent"
+	default:
+		return "patient"
 	}
 }
 

@@ -214,6 +214,50 @@ func (h *Handler) UpdatePatient(w http.ResponseWriter, r *http.Request) {
 	respond.JSON(w, http.StatusOK, patient, nil)
 }
 
+func (h *Handler) GetScreeningSchedule(w http.ResponseWriter, r *http.Request) {
+	patientID := strings.TrimSpace(r.PathValue("id"))
+	schedule, ok, err := h.store.GetScreeningSchedule(r.Context(), patientID)
+	if err != nil {
+		respond.Error(w, http.StatusInternalServerError, "store_error", "Could not load the screening schedule.")
+		return
+	}
+	if !ok {
+		respond.Error(w, http.StatusNotFound, "not_found", "Screening schedule not found.")
+		return
+	}
+
+	respond.JSON(w, http.StatusOK, schedule, nil)
+}
+
+func (h *Handler) PutScreeningSchedule(w http.ResponseWriter, r *http.Request) {
+	patientID := strings.TrimSpace(r.PathValue("id"))
+	var input ScreeningScheduleInput
+	if err := decodeJSONBody(r, &input); err != nil {
+		respond.Error(w, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+	if err := validateScreeningScheduleInput(input); err != nil {
+		respond.Error(w, http.StatusBadRequest, "validation_error", err.Error())
+		return
+	}
+
+	schedule, err := h.store.PutScreeningSchedule(r.Context(), patientID, input, time.Now().UTC())
+	if err != nil {
+		if errors.Is(err, ErrPatientNotFound) {
+			respond.Error(w, http.StatusNotFound, "not_found", "Patient not found.")
+			return
+		}
+		if isValidationError(err) {
+			respond.Error(w, http.StatusBadRequest, "validation_error", err.Error())
+			return
+		}
+		respond.Error(w, http.StatusInternalServerError, "store_error", "Could not save the screening schedule.")
+		return
+	}
+
+	respond.JSON(w, http.StatusOK, schedule, nil)
+}
+
 func (h *Handler) GetConsentState(w http.ResponseWriter, r *http.Request) {
 	patientID := strings.TrimSpace(r.PathValue("id"))
 	state, ok, err := h.store.GetConsentState(r.Context(), patientID)
@@ -328,8 +372,9 @@ func (h *Handler) CreateCall(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusBadRequest, "validation_error", "channel must be browser or connect.")
 		return
 	}
-	if trigger := strings.TrimSpace(input.TriggerType); trigger != "" && !contains([]string{CallTriggerManual, CallTriggerApprovedNextCall}, trigger) {
-		respond.Error(w, http.StatusBadRequest, "validation_error", "triggerType must be manual or approved_next_call.")
+	input.TriggerType = normalizeRequestedCallTrigger(input.TriggerType)
+	if trigger := strings.TrimSpace(input.TriggerType); trigger != "" && !contains(validCallTriggersForRequests(), trigger) {
+		respond.Error(w, http.StatusBadRequest, "validation_error", "triggerType must be caregiver_requested or follow_up_recommendation.")
 		return
 	}
 
@@ -379,10 +424,21 @@ func (h *Handler) GetCall(w http.ResponseWriter, r *http.Request) {
 		analysis = &record
 	}
 
+	var analysisJob *AnalysisJob
+	job, ok, err := h.store.GetAnalysisJob(r.Context(), callRun.ID)
+	if err != nil {
+		respond.Error(w, http.StatusInternalServerError, "store_error", "Could not load the analysis job.")
+		return
+	}
+	if ok {
+		analysisJob = &job
+	}
+
 	respond.JSON(w, http.StatusOK, CallRunDetail{
 		CallRun:         callRun,
 		TranscriptTurns: transcriptTurns,
 		Analysis:        analysis,
+		AnalysisJob:     analysisJob,
 	}, nil)
 }
 
@@ -390,7 +446,7 @@ func (h *Handler) AnalyzeCall(w http.ResponseWriter, r *http.Request) {
 	callRunID := strings.TrimSpace(r.PathValue("id"))
 	force, _ := strconv.ParseBool(strings.TrimSpace(r.URL.Query().Get("force")))
 
-	record, err := h.service.AnalyzeCall(r.Context(), callRunID, force)
+	job, err := h.service.EnqueueAnalysis(r.Context(), callRunID, force)
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrCallRunNotFound), errors.Is(err, ErrPatientNotFound):
@@ -405,7 +461,22 @@ func (h *Handler) AnalyzeCall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respond.JSON(w, http.StatusOK, record, nil)
+	respond.JSON(w, http.StatusOK, job, nil)
+}
+
+func (h *Handler) GetAnalysisJob(w http.ResponseWriter, r *http.Request) {
+	callRunID := strings.TrimSpace(r.PathValue("id"))
+	job, ok, err := h.store.GetAnalysisJob(r.Context(), callRunID)
+	if err != nil {
+		respond.Error(w, http.StatusInternalServerError, "store_error", "Could not load the analysis job.")
+		return
+	}
+	if !ok {
+		respond.Error(w, http.StatusNotFound, "not_found", "Analysis job not found.")
+		return
+	}
+
+	respond.JSON(w, http.StatusOK, job, nil)
 }
 
 func (h *Handler) GetCallAnalysis(w http.ResponseWriter, r *http.Request) {
@@ -515,6 +586,25 @@ func validatePatientInput(input CreatePatientRequest) error {
 	}
 	if _, err := time.LoadLocation(strings.TrimSpace(input.Timezone)); err != nil {
 		return errors.New("timezone must be a valid IANA timezone")
+	}
+	return nil
+}
+
+func validateScreeningScheduleInput(input ScreeningScheduleInput) error {
+	if !contains(validCadences(), input.Cadence) {
+		return newValidationError("cadence must be weekly or biweekly")
+	}
+	if strings.TrimSpace(input.Timezone) == "" {
+		return newValidationError("timezone is required")
+	}
+	if _, err := time.LoadLocation(strings.TrimSpace(input.Timezone)); err != nil {
+		return newValidationError("timezone must be a valid IANA timezone")
+	}
+	if input.PreferredWeekday < 0 || input.PreferredWeekday > 6 {
+		return newValidationError("preferredWeekday must be between 0 and 6")
+	}
+	if _, _, err := parseLocalClock(strings.TrimSpace(input.PreferredLocalTime)); err != nil {
+		return err
 	}
 	return nil
 }

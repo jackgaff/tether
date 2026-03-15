@@ -13,6 +13,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"nova-echoes/api/db"
@@ -126,7 +127,7 @@ func TestAdminCaregiverFlowWithVoiceLifecycleAndAnalysis(t *testing.T) {
 	}, http.StatusCreated, &patient)
 
 	assertStatus(t, client, http.MethodPost, server.URL+"/api/v1/admin/patients/"+patient.ID+"/calls", map[string]any{
-		"callType": "orientation",
+		"callType": "check_in",
 		"channel":  "browser",
 	}, http.StatusBadRequest)
 
@@ -141,21 +142,21 @@ func TestAdminCaregiverFlowWithVoiceLifecycleAndAnalysis(t *testing.T) {
 	}, http.StatusOK, nil)
 
 	assertStatus(t, client, http.MethodPost, server.URL+"/api/v1/admin/patients/"+patient.ID+"/calls", map[string]any{
-		"callType": "orientation",
+		"callType": "check_in",
 		"channel":  "browser",
 	}, http.StatusBadRequest)
 
 	doJSON(t, client, http.MethodDelete, server.URL+"/api/v1/admin/patients/"+patient.ID+"/pause", nil, http.StatusOK, nil)
 
 	assertStatus(t, client, http.MethodPost, server.URL+"/api/v1/admin/patients/"+patient.ID+"/calls", map[string]any{
-		"callTemplateId": "tmpl-orientation-v1",
-		"callType":       "orientation",
+		"callTemplateId": "tmpl-check-in-v1",
+		"callType":       "check_in",
 		"channel":        "browser",
 	}, http.StatusBadRequest)
 
 	var created admin.CreateCallResponse
 	doJSON(t, client, http.MethodPost, server.URL+"/api/v1/admin/patients/"+patient.ID+"/calls", map[string]any{
-		"callType": "orientation",
+		"callType": "check_in",
 		"channel":  "browser",
 	}, http.StatusCreated, &created)
 
@@ -218,20 +219,16 @@ func TestAdminCaregiverFlowWithVoiceLifecycleAndAnalysis(t *testing.T) {
 		t.Fatalf("expected startedAt and endedAt to be populated, got %+v", callDetail.CallRun)
 	}
 
-	var analysisRecord admin.AnalysisRecord
-	doJSON(t, client, http.MethodPost, server.URL+"/api/v1/admin/calls/"+created.CallRun.ID+"/analyze", nil, http.StatusOK, &analysisRecord)
-	firstAnalysisID := analysisRecord.ID
-	if firstAnalysisID == "" {
-		t.Fatal("expected analysis record id")
-	}
-	if len(analysisRecord.RiskFlags) == 0 {
-		t.Fatal("expected derived risk flags")
+	var analysisJob admin.AnalysisJob
+	doJSON(t, client, http.MethodPost, server.URL+"/api/v1/admin/calls/"+created.CallRun.ID+"/analyze", nil, http.StatusOK, &analysisJob)
+	if analysisJob.ID == "" {
+		t.Fatal("expected analysis job id")
 	}
 
-	var repeated admin.AnalysisRecord
-	doJSON(t, client, http.MethodPost, server.URL+"/api/v1/admin/calls/"+created.CallRun.ID+"/analyze", nil, http.StatusOK, &repeated)
-	if repeated.ID != firstAnalysisID {
-		t.Fatalf("expected repeated analyze call to return existing analysis id %q, got %q", firstAnalysisID, repeated.ID)
+	var analysisRecord admin.AnalysisRecord
+	waitForAnalysis(t, client, server.URL+"/api/v1/admin/calls/"+created.CallRun.ID+"/analysis", &analysisRecord)
+	if len(analysisRecord.RiskFlags) == 0 {
+		t.Fatal("expected persisted risk flags")
 	}
 
 	var nextCallPlan admin.NextCallPlan
@@ -281,8 +278,10 @@ func newAdminIntegrationHandler(t *testing.T, database *sql.DB, cfg config.Confi
 		voice.NewSessionManager(),
 	)
 	adminStore := admin.NewPostgresStore(database)
-	adminService := admin.NewService(adminStore, voiceService, staticAnalysisRunner{}, cfg.NovaAnalysisModelID)
+	adminService := admin.NewService(adminStore, voiceService, cfg.NovaAnalysisModelID)
 	adminSessions := adminsession.New(cfg)
+
+	go admin.NewAnalysisWorker(adminStore, staticAnalysisRunner{}).Run(context.Background(), 10*time.Millisecond)
 
 	return httpserver.New(cfg, httpserver.Dependencies{
 		CheckIns:    checkins.NewHandler(checkins.NewPostgresStore(database)),
@@ -297,34 +296,44 @@ type staticAnalysisRunner struct{}
 
 func (staticAnalysisRunner) Analyze(_ context.Context, promptContext admin.AnalysisPromptContext) (admin.AnalysisPayload, error) {
 	return admin.AnalysisPayload{
-		CallTypeCompleted: promptContext.CallTemplate.CallType,
-		PatientState: admin.AnalysisPatientState{
-			Orientation: admin.AnalysisOrientationMixed,
-			Mood:        admin.AnalysisMoodNeutral,
-			Engagement:  admin.AnalysisEngagementMedium,
-			Confidence:  0.91,
-		},
-		Signals: admin.AnalysisSignals{
-			Repetition:           1,
-			SleepConcern:         true,
-			SocialConnectionNeed: true,
-		},
-		Evidence: []admin.AnalysisEvidence{
+		Summary: "The call completed successfully and suggested a gentle follow-up.",
+		SalientEvidence: []admin.SalientEvidence{
 			{
-				Quote:        "The caller paused several times and repeated the morning question.",
-				WhyItMatters: "Suggests a gentle follow-up and another brief orientation call.",
+				Quote:  "The caller asked if Echo could check in again in a few days.",
+				Reason: "This directly supports a caregiver review for another short check-in.",
 			},
 		},
-		DashboardSummary: "The call completed successfully and suggested a gentle follow-up.",
-		CaregiverSummary: "Ellie completed the call. Repetition was mild, and a short reminder-style follow-up is recommended.",
-		RecommendedNextCall: admin.RecommendedNextCall{
-			Type:            admin.CallTypeReminder,
-			Timing:          "Later this evening",
-			DurationMinutes: 4,
-			Goal:            "Repeat the main routine cue one more time.",
+		RiskFlags: []admin.AnalysisRiskFlag{
+			{
+				FlagType:   "follow_up_requested",
+				Severity:   admin.RiskSeverityInfo,
+				Evidence:   "The caller asked for another check-in in a few days.",
+				Reason:     "A caregiver should review and approve the follow-up.",
+				Confidence: 0.91,
+			},
 		},
-		EscalationLevel: admin.EscalationCaregiverSoon,
-		Uncertainties:   []string{"Transcript evidence is limited because the test call ended early."},
+		EscalationLevel:       admin.EscalationCaregiverSoon,
+		CaregiverReviewReason: "The patient asked for another check-in soon.",
+		FollowUpIntent: admin.FollowUpIntent{
+			RequestedByPatient: true,
+			TimeframeBucket:    admin.TimeframeFewDays,
+			Evidence:           "Could you check in with me again in a few days?",
+			Confidence:         0.91,
+		},
+		NextCallRecommendation: &admin.NextCallRecommendation{
+			CallType:     admin.CallTypeCheckIn,
+			WindowBucket: admin.TimeframeFewDays,
+			Goal:         "Follow up on the patient's day and comfort.",
+		},
+		CheckIn: &admin.CheckInAnalysis{
+			ReportedDayOverview:     "The patient shared a brief update about the day.",
+			FoodAndHydration:        "Breakfast was mentioned.",
+			MedicationMentions:      []string{},
+			MoodSignals:             []string{"calm"},
+			RoutineAdherence:        "No major adherence concern observed.",
+			SocialContactMentions:   []string{"Echo"},
+			FollowUpRequestDetected: true,
+		},
 	}, nil
 }
 
@@ -479,4 +488,30 @@ func doRequestWithOrigin(t *testing.T, client *http.Client, method string, targe
 		t.Fatalf("client.Do: %v", err)
 	}
 	return res
+}
+
+func waitForAnalysis(t *testing.T, client *http.Client, targetURL string, out any) {
+	t.Helper()
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		res := doRequest(t, client, http.MethodGet, targetURL, nil)
+		if res.StatusCode == http.StatusOK {
+			defer res.Body.Close()
+			envelope := struct {
+				Data json.RawMessage `json:"data"`
+			}{}
+			if err := json.NewDecoder(res.Body).Decode(&envelope); err != nil {
+				t.Fatalf("decode analysis envelope: %v", err)
+			}
+			if err := json.Unmarshal(envelope.Data, out); err != nil {
+				t.Fatalf("decode analysis payload: %v", err)
+			}
+			return
+		}
+		_ = res.Body.Close()
+		time.Sleep(25 * time.Millisecond)
+	}
+
+	t.Fatal("timed out waiting for analysis result")
 }

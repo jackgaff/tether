@@ -9,32 +9,37 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"nova-echoes/api/internal/modules/voicecatalog"
 )
 
 type Config struct {
-	AppName                    string
-	AppEnv                     string
-	Port                       string
-	FrontendOrigin             string
-	AllowedFrontendOrigins     []string
-	DatabaseURL                string
-	VoiceLabExportDir          string
-	AuthMode                   string
-	InternalAPIKey             string
-	AWSRegion                  string
-	BedrockRegion              string
-	NovaVoiceModelID           string
-	NovaAnalysisModelID        string
-	NovaDefaultVoiceID         string
-	NovaAllowedVoiceIDs        []string
-	NovaInputSampleRate        int
-	NovaOutputSampleRate       int
-	NovaEndpointingSensitivity string
-	AdminUsername              string
-	AdminPassword              string
-	AdminSessionSecret         string
+	AppName                        string
+	AppEnv                         string
+	Port                           string
+	FrontendOrigin                 string
+	AllowedFrontendOrigins         []string
+	DatabaseURL                    string
+	VoiceLabExportDir              string
+	AuthMode                       string
+	InternalAPIKey                 string
+	AWSRegion                      string
+	BedrockRegion                  string
+	NovaVoiceModelID               string
+	NovaAnalysisModelID            string
+	NovaDefaultVoiceID             string
+	NovaAllowedVoiceIDs            []string
+	NovaInputSampleRate            int
+	NovaOutputSampleRate           int
+	NovaEndpointingSensitivity     string
+	AdminUsername                  string
+	AdminPassword                  string
+	AdminSessionSecret             string
+	AnalysisWorkerEnabled          bool
+	AnalysisWorkerPollInterval     time.Duration
+	ScreeningSchedulerEnabled      bool
+	ScreeningSchedulerPollInterval time.Duration
 }
 
 func Load() (Config, error) {
@@ -60,23 +65,25 @@ func LoadFrom(baseDir string) (Config, error) {
 	var parseErr error
 
 	cfg := Config{
-		AppName:             getEnv("APP_NAME", "Nova Echoes"),
-		AppEnv:              getEnv("APP_ENV", "development"),
-		Port:                getEnv("API_PORT", "8080"),
-		FrontendOrigin:      getEnv("FRONTEND_ORIGIN", "http://localhost:5173"),
-		DatabaseURL:         getEnv("DATABASE_URL", ""),
-		VoiceLabExportDir:   getEnv("VOICE_LAB_EXPORT_DIR", filepath.Join(repoRoot, "apps", "api", "testdata", "voice-lab")),
-		AuthMode:            getEnv("AUTH_MODE", "off"),
-		InternalAPIKey:      os.Getenv("INTERNAL_API_KEY"),
-		AWSRegion:           getEnv("AWS_REGION", "us-east-1"),
-		BedrockRegion:       getEnv("BEDROCK_REGION", "us-east-1"),
-		NovaVoiceModelID:    getEnv("NOVA_VOICE_MODEL_ID", "amazon.nova-2-sonic-v1:0"),
-		NovaAnalysisModelID: getEnv("NOVA_ANALYSIS_MODEL_ID", "amazon.nova-2-lite-v1:0"),
-		NovaDefaultVoiceID:  getEnv("NOVA_DEFAULT_VOICE_ID", "matthew"),
-		NovaAllowedVoiceIDs: getEnvList("NOVA_ALLOWED_VOICE_IDS", voicecatalog.KnownIDs()),
-		AdminUsername:       getEnv("ADMIN_USERNAME", "demo-admin"),
-		AdminPassword:       getEnv("ADMIN_PASSWORD", "demo-admin-password"),
-		AdminSessionSecret:  getEnv("ADMIN_SESSION_SECRET", "demo-admin-session-secret-change-me"),
+		AppName:                   getEnv("APP_NAME", "Nova Echoes"),
+		AppEnv:                    getEnv("APP_ENV", "development"),
+		Port:                      getEnv("API_PORT", "8080"),
+		FrontendOrigin:            getEnv("FRONTEND_ORIGIN", "http://localhost:5173"),
+		DatabaseURL:               getEnv("DATABASE_URL", ""),
+		VoiceLabExportDir:         getEnv("VOICE_LAB_EXPORT_DIR", filepath.Join(repoRoot, "apps", "api", "testdata", "voice-lab")),
+		AuthMode:                  getEnv("AUTH_MODE", "off"),
+		InternalAPIKey:            os.Getenv("INTERNAL_API_KEY"),
+		AWSRegion:                 getEnv("AWS_REGION", "us-east-1"),
+		BedrockRegion:             getEnv("BEDROCK_REGION", "us-east-1"),
+		NovaVoiceModelID:          getEnv("NOVA_VOICE_MODEL_ID", "amazon.nova-2-sonic-v1:0"),
+		NovaAnalysisModelID:       getEnv("NOVA_ANALYSIS_MODEL_ID", "amazon.nova-2-lite-v1:0"),
+		NovaDefaultVoiceID:        getEnv("NOVA_DEFAULT_VOICE_ID", "matthew"),
+		NovaAllowedVoiceIDs:       getEnvList("NOVA_ALLOWED_VOICE_IDS", voicecatalog.KnownIDs()),
+		AdminUsername:             getEnv("ADMIN_USERNAME", "demo-admin"),
+		AdminPassword:             getEnv("ADMIN_PASSWORD", "demo-admin-password"),
+		AdminSessionSecret:        getEnv("ADMIN_SESSION_SECRET", "demo-admin-session-secret-change-me"),
+		AnalysisWorkerEnabled:     getEnvBool("ANALYSIS_WORKER_ENABLED", true),
+		ScreeningSchedulerEnabled: getEnvBool("SCREENING_SCHEDULER_ENABLED", true),
 	}
 
 	cfg.AllowedFrontendOrigins = getEnvList("ALLOWED_FRONTEND_ORIGINS", []string{cfg.FrontendOrigin})
@@ -98,6 +105,16 @@ func LoadFrom(baseDir string) (Config, error) {
 	}
 
 	cfg.NovaEndpointingSensitivity = strings.ToUpper(getEnv("NOVA_ENDPOINTING_SENSITIVITY", "LOW"))
+
+	cfg.AnalysisWorkerPollInterval, parseErr = getEnvDuration("ANALYSIS_WORKER_POLL_INTERVAL", time.Second)
+	if parseErr != nil {
+		return Config{}, parseErr
+	}
+
+	cfg.ScreeningSchedulerPollInterval, parseErr = getEnvDuration("SCREENING_SCHEDULER_POLL_INTERVAL", 5*time.Second)
+	if parseErr != nil {
+		return Config{}, parseErr
+	}
 
 	switch cfg.AuthMode {
 	case "off", "api-key":
@@ -175,6 +192,35 @@ func getEnvInt(key string, fallback int) (int, error) {
 		return 0, fmt.Errorf("%s must be a valid integer, got %q", key, value)
 	}
 
+	return parsed, nil
+}
+
+func getEnvBool(key string, fallback bool) bool {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+
+	switch strings.ToLower(value) {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return fallback
+	}
+}
+
+func getEnvDuration(key string, fallback time.Duration) (time.Duration, error) {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback, nil
+	}
+
+	parsed, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a valid duration, got %q", key, value)
+	}
 	return parsed, nil
 }
 

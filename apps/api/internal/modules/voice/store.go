@@ -286,7 +286,7 @@ func (r *PostgresRepository) MarkCallRunInProgress(ctx context.Context, sessionI
 		return err
 	}
 
-	if triggerType == "approved_next_call" {
+	if triggerType == "follow_up_recommendation" {
 		if _, execErr := tx.ExecContext(ctx, `
 			update next_call_plans
 			set approval_status = 'executed',
@@ -398,6 +398,7 @@ func (r *PostgresRepository) SaveTranscriptTurn(ctx context.Context, turn Transc
 			voice_session_id,
 			sequence_no,
 			direction,
+			speaker_role,
 			modality,
 			transcript_text,
 			bedrock_session_id,
@@ -407,8 +408,8 @@ func (r *PostgresRepository) SaveTranscriptTurn(ctx context.Context, turn Transc
 			generation_stage,
 			stop_reason,
 			occurred_at
-		) values ($1, $2, $3, $4, $5, nullif($6, ''), nullif($7, ''), nullif($8, ''), nullif($9, ''), nullif($10, ''), nullif($11, ''), $12)
-	`, turn.VoiceSessionID, turn.SequenceNo, turn.Direction, turn.Modality, turn.TranscriptText, turn.BedrockSessionID, turn.PromptName,
+		) values ($1, $2, $3, nullif($4, ''), $5, $6, nullif($7, ''), nullif($8, ''), nullif($9, ''), nullif($10, ''), nullif($11, ''), nullif($12, ''), $13)
+	`, turn.VoiceSessionID, turn.SequenceNo, turn.Direction, turn.SpeakerRole, turn.Modality, turn.TranscriptText, turn.BedrockSessionID, turn.PromptName,
 		turn.CompletionID, turn.ContentID, turn.GenerationStage, turn.StopReason, turn.OccurredAt)
 	if err != nil {
 		return fmt.Errorf("save transcript turn: %w", err)
@@ -461,6 +462,7 @@ func (r *PostgresRepository) ListTranscriptTurns(ctx context.Context, sessionID 
 			voice_session_id,
 			sequence_no,
 			direction,
+			coalesce(speaker_role, ''),
 			modality,
 			transcript_text,
 			coalesce(bedrock_session_id, ''),
@@ -486,6 +488,7 @@ func (r *PostgresRepository) ListTranscriptTurns(ctx context.Context, sessionID 
 			&turn.VoiceSessionID,
 			&turn.SequenceNo,
 			&turn.Direction,
+			&turn.SpeakerRole,
 			&turn.Modality,
 			&turn.TranscriptText,
 			&turn.BedrockSessionID,
