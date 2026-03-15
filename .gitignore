@@ -20,3 +20,7 @@ apps/api/bin
 
 # Local artifacts
 output.json
+
+# Claude
+*.claude
+CLAUDE.md

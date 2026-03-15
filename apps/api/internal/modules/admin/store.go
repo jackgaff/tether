@@ -18,6 +18,7 @@ type Store interface {
 	GetCaregiver(ctx context.Context, caregiverID string) (Caregiver, bool, error)
 	UpdateCaregiver(ctx context.Context, caregiverID string, input UpdateCaregiverRequest) (Caregiver, error)
 	CreatePatient(ctx context.Context, input CreatePatientRequest) (Patient, error)
+	ListPatients(ctx context.Context) ([]Patient, error)
 	GetPatient(ctx context.Context, patientID string) (Patient, bool, error)
 	UpdatePatient(ctx context.Context, patientID string, input UpdatePatientRequest) (Patient, error)
 	GetConsentState(ctx context.Context, patientID string) (ConsentState, bool, error)
@@ -264,6 +265,44 @@ func (s *PostgresStore) GetPatient(ctx context.Context, patientID string) (Patie
 	}
 
 	return patient, true, nil
+}
+
+func (s *PostgresStore) ListPatients(ctx context.Context) ([]Patient, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		select
+			id,
+			primary_caregiver_id,
+			display_name,
+			preferred_name,
+			phone_e164,
+			timezone,
+			notes,
+			calling_state,
+			pause_reason,
+			paused_at,
+			routine_anchors,
+			favorite_topics,
+			calming_cues,
+			topics_to_avoid,
+			created_at,
+			updated_at
+		from patients
+		order by created_at asc
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list patients: %w", err)
+	}
+	defer rows.Close()
+
+	var patients []Patient
+	for rows.Next() {
+		p, err := scanPatient(rows)
+		if err != nil {
+			return nil, fmt.Errorf("list patients scan: %w", err)
+		}
+		patients = append(patients, p)
+	}
+	return patients, rows.Err()
 }
 
 func (s *PostgresStore) UpdatePatient(ctx context.Context, patientID string, input UpdatePatientRequest) (Patient, error) {
