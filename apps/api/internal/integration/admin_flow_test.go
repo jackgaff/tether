@@ -25,6 +25,7 @@ import (
 	"nova-echoes/api/internal/modules/patients/preferences"
 	"nova-echoes/api/internal/modules/voice"
 	"nova-echoes/api/internal/modules/voicecatalog"
+	"nova-echoes/api/internal/prompts"
 )
 
 func TestAdminCaregiverFlowWithVoiceLifecycleAndAnalysis(t *testing.T) {
@@ -257,6 +258,47 @@ func TestAdminCaregiverFlowWithVoiceLifecycleAndAnalysis(t *testing.T) {
 	if dashboard.ActiveNextCallPlan == nil || dashboard.ActiveNextCallPlan.ApprovalStatus != admin.NextCallStatusApproved {
 		t.Fatalf("expected approved active next-call plan, got %+v", dashboard.ActiveNextCallPlan)
 	}
+
+	var people []admin.PatientPerson
+	doJSON(t, client, http.MethodGet, server.URL+"/api/v1/admin/patients/"+patient.ID+"/people", nil, http.StatusOK, &people)
+
+	var reminders []admin.Reminder
+	doJSON(t, client, http.MethodGet, server.URL+"/api/v1/admin/patients/"+patient.ID+"/reminders", nil, http.StatusOK, &reminders)
+	if len(reminders) == 0 {
+		t.Fatal("expected reminders materialized from check-in analysis")
+	}
+
+	var reminisceCall admin.CreateCallResponse
+	doJSON(t, client, http.MethodPost, server.URL+"/api/v1/admin/patients/"+patient.ID+"/calls", map[string]any{
+		"callType": "reminiscence",
+		"channel":  "browser",
+	}, http.StatusCreated, &reminisceCall)
+	completeVoiceCall(t, server.URL, reminisceCall.VoiceSession)
+	doJSON(t, client, http.MethodPost, server.URL+"/api/v1/admin/calls/"+reminisceCall.CallRun.ID+"/analyze", nil, http.StatusOK, nil)
+	waitForAnalysis(t, client, server.URL+"/api/v1/admin/calls/"+reminisceCall.CallRun.ID+"/analysis", &analysisRecord)
+
+	var memoryBank []admin.MemoryBankEntry
+	doJSON(t, client, http.MethodGet, server.URL+"/api/v1/admin/patients/"+patient.ID+"/memory-bank", nil, http.StatusOK, &memoryBank)
+	if len(memoryBank) == 0 {
+		t.Fatal("expected memory bank entry from reminiscence analysis")
+	}
+
+	doJSON(t, client, http.MethodGet, server.URL+"/api/v1/admin/patients/"+patient.ID+"/people", nil, http.StatusOK, &people)
+	if len(people) == 0 {
+		t.Fatal("expected patient people materialized from reminiscence analysis")
+	}
+
+	var updatedPerson admin.PatientPerson
+	doJSON(t, client, http.MethodPut, server.URL+"/api/v1/admin/patients/"+patient.ID+"/people/"+people[0].ID, map[string]any{
+		"name":                people[0].Name,
+		"relationship":        "daughter",
+		"status":              "confirmed_living",
+		"relationshipQuality": "close_active",
+		"notes":               "Verified by caregiver.",
+	}, http.StatusOK, &updatedPerson)
+	if !updatedPerson.SafeToSuggestCall {
+		t.Fatal("expected verified person to become safeToSuggestCall")
+	}
 }
 
 func newAdminIntegrationHandler(t *testing.T, database *sql.DB, cfg config.Config) http.Handler {
@@ -280,6 +322,9 @@ func newAdminIntegrationHandler(t *testing.T, database *sql.DB, cfg config.Confi
 	adminStore := admin.NewPostgresStore(database)
 	adminService := admin.NewService(adminStore, voiceService, cfg.NovaAnalysisModelID)
 	adminSessions := adminsession.New(cfg)
+	if err := prompts.SyncCallTemplates(context.Background(), database); err != nil {
+		t.Fatalf("prompts.SyncCallTemplates: %v", err)
+	}
 
 	go admin.NewAnalysisWorker(adminStore, staticAnalysisRunner{}).Run(context.Background(), 10*time.Millisecond)
 
@@ -295,6 +340,48 @@ func newAdminIntegrationHandler(t *testing.T, database *sql.DB, cfg config.Confi
 type staticAnalysisRunner struct{}
 
 func (staticAnalysisRunner) Analyze(_ context.Context, promptContext admin.AnalysisPromptContext) (admin.AnalysisPayload, error) {
+	if promptContext.CallRun.CallType == admin.CallTypeReminiscence {
+		return admin.AnalysisPayload{
+			Summary: "The reminiscence call centered on a warm family kitchen memory.",
+			SalientEvidence: []admin.SalientEvidence{
+				{
+					Quote:  "I used to bake with my daughter Mary on Sundays.",
+					Reason: "This identifies a meaningful person and a strong follow-up thread for future reminiscence calls.",
+				},
+			},
+			RiskFlags:       []admin.AnalysisRiskFlag{},
+			EscalationLevel: admin.EscalationNone,
+			FollowUpIntent: admin.FollowUpIntent{
+				RequestedByPatient: false,
+				TimeframeBucket:    admin.TimeframeUnspecified,
+				Confidence:         0.72,
+			},
+			NextCallRecommendation: &admin.NextCallRecommendation{
+				CallType:     admin.CallTypeReminiscence,
+				WindowBucket: admin.TimeframeNextWeek,
+				Goal:         "Return to the Sunday baking story and related family memories.",
+			},
+			Reminiscence: &admin.ReminiscenceAnalysis{
+				Topic: "Sunday baking with family",
+				MentionedPeople: []admin.MentionedPerson{
+					{Name: "Mary", Relationship: "daughter", Context: "Baked together on Sundays."},
+				},
+				MentionedPlaces:     []string{"Family kitchen"},
+				MentionedMusic:      []string{"Frank Sinatra"},
+				MentionedShowsFilms: []string{"I Love Lucy"},
+				LifeChapters:        []string{"Raised children at home"},
+				Summary:             "Ellie warmly described baking with her daughter Mary in the family kitchen and smiled when talking about music from that time.",
+				EmotionalTone:       "warm and animated",
+				RespondedWellTo:     []string{"Family stories", "Kitchen memories"},
+				AnchorOffered:       true,
+				AnchorType:          admin.AnchorTypeNone,
+				AnchorAccepted:      false,
+				SuggestedFollowUp:   "Ask more about Sunday baking traditions.",
+				CaregiverSummary:    "Ellie responded especially well to family and kitchen memories, with Mary coming up as an important figure.",
+			},
+		}, nil
+	}
+
 	return admin.AnalysisPayload{
 		Summary: "The call completed successfully and suggested a gentle follow-up.",
 		SalientEvidence: []admin.SalientEvidence{
@@ -326,15 +413,75 @@ func (staticAnalysisRunner) Analyze(_ context.Context, promptContext admin.Analy
 			Goal:         "Follow up on the patient's day and comfort.",
 		},
 		CheckIn: &admin.CheckInAnalysis{
-			ReportedDayOverview:     "The patient shared a brief update about the day.",
-			FoodAndHydration:        "Breakfast was mentioned.",
-			MedicationMentions:      []string{},
-			MoodSignals:             []string{"calm"},
-			RoutineAdherence:        "No major adherence concern observed.",
-			SocialContactMentions:   []string{"Echo"},
-			FollowUpRequestDetected: true,
+			OrientationStatus:         admin.OrientationStatusOriented,
+			OrientationNotes:          "Comfortably oriented during the call.",
+			MealsStatus:               admin.CheckInCaptureReported,
+			MealsDetail:               "Breakfast was mentioned.",
+			FluidsStatus:              admin.CheckInCaptureReported,
+			FluidsDetail:              "Had tea this morning.",
+			ActivityDetail:            "Shared a brief update about the day.",
+			SocialContact:             admin.SocialContactYes,
+			SocialContactDetail:       "Spoke with Echo.",
+			RemindersNoted:            []admin.ReminderNote{{Title: "Check on the garden", Detail: "Would like a reminder tomorrow morning."}},
+			ReminderDeclined:          false,
+			Mood:                      admin.CheckInMoodCalm,
+			MoodNotes:                 "Sounded steady and comfortable.",
+			Sleep:                     admin.SleepStatusGood,
+			SleepNotes:                "No sleep concerns came up.",
+			MemoryFlags:               []string{},
+			DeliriumWatch:             false,
+			DeliriumPotentialTriggers: []string{},
+			CaregiverSummary:          "Ellie sounded calm, remembered breakfast and tea, and asked to keep an eye on the garden tomorrow.",
 		},
 	}, nil
+}
+
+func completeVoiceCall(t *testing.T, serverURL string, rawVoiceSession any) {
+	t.Helper()
+
+	voiceSessionBytes, err := json.Marshal(rawVoiceSession)
+	if err != nil {
+		t.Fatalf("json.Marshal(voiceSession): %v", err)
+	}
+	var descriptor voice.SessionDescriptor
+	if err := json.Unmarshal(voiceSessionBytes, &descriptor); err != nil {
+		t.Fatalf("json.Unmarshal(voiceSession): %v", err)
+	}
+
+	wsURL, err := url.Parse(serverURL)
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	wsURL.Scheme = "ws"
+	wsURL.Path = descriptor.WebSocketPath
+	query := wsURL.Query()
+	query.Set("token", descriptor.StreamToken)
+	wsURL.RawQuery = query.Encode()
+
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL.String(), http.Header{"Origin": []string{"http://localhost:5173"}})
+	if err != nil {
+		t.Fatalf("websocket.Dial: %v", err)
+	}
+	defer conn.Close()
+
+	var ready map[string]any
+	if err := conn.ReadJSON(&ready); err != nil {
+		t.Fatalf("ReadJSON(session_ready): %v", err)
+	}
+	if ready["type"] != "session_ready" {
+		t.Fatalf("expected session_ready, got %#v", ready)
+	}
+	if err := conn.WriteJSON(map[string]any{"type": "client_close"}); err != nil {
+		t.Fatalf("WriteJSON(client_close): %v", err)
+	}
+
+	var ended map[string]any
+	if err := conn.ReadJSON(&ended); err != nil {
+		t.Fatalf("ReadJSON(session_ended): %v", err)
+	}
+	if ended["type"] != "session_ended" {
+		t.Fatalf("expected session_ended, got %#v", ended)
+	}
 }
 
 type testLiveSessionStarter struct{}

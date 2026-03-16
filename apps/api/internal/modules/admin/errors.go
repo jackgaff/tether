@@ -18,6 +18,7 @@ var (
 	ErrAnalysisNotFound             = errors.New("analysis result not found")
 	ErrAnalysisJobNotFound          = errors.New("analysis job not found")
 	ErrNextCallPlanNotFound         = errors.New("active next-call plan not found")
+	ErrPatientPersonNotFound        = errors.New("patient person not found")
 	ErrApprovedNextCallPlanRequired = errors.New("an approved next-call plan is required")
 	ErrPatientConsentRequired       = errors.New("patient consent must be granted before starting a call")
 	ErrPatientPaused                = errors.New("patient calling is currently paused")

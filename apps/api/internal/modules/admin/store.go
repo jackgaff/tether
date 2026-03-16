@@ -21,6 +21,11 @@ type Store interface {
 	ListPatients(ctx context.Context) ([]Patient, error)
 	GetPatient(ctx context.Context, patientID string) (Patient, bool, error)
 	UpdatePatient(ctx context.Context, patientID string, input UpdatePatientRequest) (Patient, error)
+	GetCallPromptContext(ctx context.Context, patientID string) (CallPromptContext, error)
+	ListPatientPeople(ctx context.Context, patientID string) ([]PatientPerson, error)
+	UpdatePatientPerson(ctx context.Context, patientID, personID string, input UpdatePatientPersonRequest) (PatientPerson, error)
+	ListMemoryBankEntries(ctx context.Context, patientID string) ([]MemoryBankEntry, error)
+	ListPatientReminders(ctx context.Context, patientID string) ([]Reminder, error)
 	GetScreeningSchedule(ctx context.Context, patientID string) (ScreeningSchedule, bool, error)
 	PutScreeningSchedule(ctx context.Context, patientID string, input ScreeningScheduleInput, now time.Time) (ScreeningSchedule, error)
 	ListDueScreeningSchedules(ctx context.Context, now time.Time, limit int) ([]ScreeningSchedule, error)
@@ -671,7 +676,7 @@ func (s *PostgresStore) ClearPatientPause(ctx context.Context, patientID string)
 }
 
 func (s *PostgresStore) ListCallTemplates(ctx context.Context) ([]CallTemplate, error) {
-	rows, err := s.db.QueryContext(ctx, callTemplateSelectBase+` order by is_active desc, display_name asc`)
+	rows, err := s.db.QueryContext(ctx, callTemplateSelectBase+` where is_active = true order by display_name asc`)
 	if err != nil {
 		return nil, fmt.Errorf("list call templates: %w", err)
 	}
@@ -1125,9 +1130,22 @@ func (s *PostgresStore) SaveAnalysisResult(ctx context.Context, input SaveAnalys
 		windowBucket = input.Result.FollowUpIntent.TimeframeBucket
 	}
 
-	template, err := s.resolveActiveCallTemplateByTypeTx(ctx, tx, recommendedCallType)
+	currentTemplate, ok, err := s.getCallTemplateByIDTx(ctx, tx, input.CallTemplateID)
 	if err != nil {
 		return AnalysisRecord{}, err
+	}
+	if !ok {
+		return AnalysisRecord{}, ErrCallTemplateNotFound
+	}
+
+	recommendedTemplate := currentTemplate
+	hasActiveRecommendedTemplate := currentTemplate.IsActive && currentTemplate.CallType == recommendedCallType
+	if contains(activeCallTypes(), recommendedCallType) {
+		template, resolveErr := s.resolveActiveCallTemplateByTypeTx(ctx, tx, recommendedCallType)
+		if resolveErr == nil {
+			recommendedTemplate = template
+			hasActiveRecommendedTemplate = true
+		}
 	}
 
 	row := tx.QueryRowContext(ctx, `
@@ -1186,7 +1204,7 @@ func (s *PostgresStore) SaveAnalysisResult(ctx context.Context, input SaveAnalys
 		    generated_at = excluded.generated_at,
 		    updated_at = excluded.updated_at
 		returning id
-	`, analysisID, input.CallRunID, input.PatientID, nullableString(input.CallTemplateID), input.ModelName, input.ModelProvider, input.ModelName, input.CallPromptVersion, input.AnalysisPromptVersion, input.SchemaVersion, payload, summarizeAnalysisForDashboard(input.Result), summarizeAnalysisForCaregiver(input.Result), input.Result.EscalationLevel, recommendedCallType, nullableString(windowBucket), template.DurationMinutes, goal, nullableString(input.Result.CaregiverReviewReason), input.Result.FollowUpIntent.RequestedByPatient, nullableString(input.Result.FollowUpIntent.Evidence), input.GeneratedAt)
+	`, analysisID, input.CallRunID, input.PatientID, nullableString(input.CallTemplateID), input.ModelName, input.ModelProvider, input.ModelName, input.CallPromptVersion, input.AnalysisPromptVersion, input.SchemaVersion, payload, summarizeAnalysisForDashboard(input.Result), summarizeAnalysisForCaregiver(input.Result), input.Result.EscalationLevel, recommendedCallType, nullableString(windowBucket), recommendedTemplate.DurationMinutes, goal, nullableString(input.Result.CaregiverReviewReason), input.Result.FollowUpIntent.RequestedByPatient, nullableString(input.Result.FollowUpIntent.Evidence), input.GeneratedAt)
 	if scanErr := row.Scan(&analysisID); scanErr != nil {
 		return AnalysisRecord{}, fmt.Errorf("upsert analysis result: %w", scanErr)
 	}
@@ -1215,6 +1233,10 @@ func (s *PostgresStore) SaveAnalysisResult(ctx context.Context, input SaveAnalys
 		}
 	}
 
+	if err := s.materializeAnalysisSideEffectsTx(ctx, tx, input, analysisID); err != nil {
+		return AnalysisRecord{}, err
+	}
+
 	if _, execErr := tx.ExecContext(ctx, `
 		update next_call_plans
 		set approval_status = 'superseded',
@@ -1225,7 +1247,7 @@ func (s *PostgresStore) SaveAnalysisResult(ctx context.Context, input SaveAnalys
 		return AnalysisRecord{}, fmt.Errorf("supersede active next call plans: %w", execErr)
 	}
 
-	if shouldCreateNextCallPlan(input.Result) {
+	if shouldCreateNextCallPlan(input.Result) && hasActiveRecommendedTemplate {
 		windowStart, windowEnd, err := deriveSuggestedWindow(input.GeneratedAt, input.PatientTimezone, windowBucket)
 		if err != nil {
 			return AnalysisRecord{}, err
@@ -1253,7 +1275,7 @@ func (s *PostgresStore) SaveAnalysisResult(ctx context.Context, input SaveAnalys
 				approval_status,
 				updated_at
 			) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'pending_approval', $14)
-		`, nextCallPlanID, input.PatientID, analysisID, template.ID, recommendedCallType, nullableString(windowBucket), windowStart, windowEnd, template.DurationMinutes, goal, input.Result.FollowUpIntent.RequestedByPatient, nullableString(input.Result.FollowUpIntent.Evidence), nullableString(input.Result.CaregiverReviewReason), input.GeneratedAt); execErr != nil {
+		`, nextCallPlanID, input.PatientID, analysisID, recommendedTemplate.ID, recommendedCallType, nullableString(windowBucket), windowStart, windowEnd, recommendedTemplate.DurationMinutes, goal, input.Result.FollowUpIntent.RequestedByPatient, nullableString(input.Result.FollowUpIntent.Evidence), nullableString(input.Result.CaregiverReviewReason), input.GeneratedAt); execErr != nil {
 			return AnalysisRecord{}, fmt.Errorf("insert next call plan: %w", execErr)
 		}
 	}
@@ -1624,6 +1646,11 @@ func upsertMemoryProfileTx(ctx context.Context, tx *sql.Tx, patientID string, pr
 			family_members,
 			life_events,
 			reminiscence_notes,
+			significant_places,
+			life_chapters,
+			favorite_music,
+			favorite_shows_films,
+			topics_to_revisit,
 			preferred_greeting_style,
 			calming_topics,
 			upsetting_topics,
@@ -1631,12 +1658,17 @@ func upsertMemoryProfileTx(ctx context.Context, tx *sql.Tx, patientID string, pr
 			best_time_of_day,
 			do_not_mention,
 			updated_at
-		) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now())
+		) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, now())
 		on conflict (patient_id) do update
 		set likes = excluded.likes,
 		    family_members = excluded.family_members,
 		    life_events = excluded.life_events,
 		    reminiscence_notes = excluded.reminiscence_notes,
+		    significant_places = excluded.significant_places,
+		    life_chapters = excluded.life_chapters,
+		    favorite_music = excluded.favorite_music,
+		    favorite_shows_films = excluded.favorite_shows_films,
+		    topics_to_revisit = excluded.topics_to_revisit,
 		    preferred_greeting_style = excluded.preferred_greeting_style,
 		    calming_topics = excluded.calming_topics,
 		    upsetting_topics = excluded.upsetting_topics,
@@ -1644,7 +1676,7 @@ func upsertMemoryProfileTx(ctx context.Context, tx *sql.Tx, patientID string, pr
 		    best_time_of_day = excluded.best_time_of_day,
 		    do_not_mention = excluded.do_not_mention,
 		    updated_at = excluded.updated_at
-	`, patientID, marshalStringList(profile.Likes), marshalJSON(profile.FamilyMembers), marshalJSON(profile.LifeEvents), nullableString(profile.ReminiscenceNotes), nullableString(guidance.PreferredGreetingStyle), marshalStringList(guidance.CalmingTopics), marshalStringList(guidance.UpsettingTopics), nullableString(guidance.HearingOrPacingNotes), nullableString(guidance.BestTimeOfDay), marshalStringList(guidance.DoNotMention)); err != nil {
+	`, patientID, marshalStringList(profile.Likes), marshalJSON(profile.FamilyMembers), marshalJSON(profile.LifeEvents), nullableString(profile.ReminiscenceNotes), marshalStringList(profile.SignificantPlaces), marshalStringList(profile.LifeChapters), marshalStringList(profile.FavoriteMusic), marshalStringList(profile.FavoriteShowsFilms), marshalStringList(profile.TopicsToRevisit), nullableString(guidance.PreferredGreetingStyle), marshalStringList(guidance.CalmingTopics), marshalStringList(guidance.UpsettingTopics), nullableString(guidance.HearingOrPacingNotes), nullableString(guidance.BestTimeOfDay), marshalStringList(guidance.DoNotMention)); err != nil {
 		return fmt.Errorf("upsert patient memory profile: %w", err)
 	}
 	return nil
@@ -1670,6 +1702,11 @@ const patientSelectBase = `
 		coalesce(pmp.family_members, '[]'::jsonb),
 		coalesce(pmp.life_events, '[]'::jsonb),
 		coalesce(pmp.reminiscence_notes, ''),
+		coalesce(pmp.significant_places, '[]'::jsonb),
+		coalesce(pmp.life_chapters, '[]'::jsonb),
+		coalesce(pmp.favorite_music, '[]'::jsonb),
+		coalesce(pmp.favorite_shows_films, '[]'::jsonb),
+		coalesce(pmp.topics_to_revisit, '[]'::jsonb),
 		coalesce(pmp.preferred_greeting_style, ''),
 		coalesce(pmp.calming_topics, '[]'::jsonb),
 		coalesce(pmp.upsetting_topics, '[]'::jsonb),
@@ -1808,6 +1845,11 @@ func scanPatient(row scanner) (Patient, error) {
 		familyMembers          []byte
 		lifeEvents             []byte
 		reminiscenceNotes      string
+		significantPlaces      []byte
+		lifeChapters           []byte
+		favoriteMusic          []byte
+		favoriteShowsFilms     []byte
+		topicsToRevisit        []byte
 		preferredGreetingStyle string
 		calmingTopics          []byte
 		upsettingTopics        []byte
@@ -1834,6 +1876,11 @@ func scanPatient(row scanner) (Patient, error) {
 		&familyMembers,
 		&lifeEvents,
 		&reminiscenceNotes,
+		&significantPlaces,
+		&lifeChapters,
+		&favoriteMusic,
+		&favoriteShowsFilms,
+		&topicsToRevisit,
 		&preferredGreetingStyle,
 		&calmingTopics,
 		&upsettingTopics,
@@ -1862,10 +1909,15 @@ func scanPatient(row scanner) (Patient, error) {
 	patient.CalmingCues = parseStringList(calmingCues)
 	patient.TopicsToAvoid = parseStringList(topicsToAvoid)
 	patient.MemoryProfile = MemoryProfile{
-		Likes:             parseStringList(likes),
-		FamilyMembers:     parseJSONSlice[FamilyMember](familyMembers),
-		LifeEvents:        parseJSONSlice[LifeEvent](lifeEvents),
-		ReminiscenceNotes: strings.TrimSpace(reminiscenceNotes),
+		Likes:              parseStringList(likes),
+		FamilyMembers:      parseJSONSlice[FamilyMember](familyMembers),
+		LifeEvents:         parseJSONSlice[LifeEvent](lifeEvents),
+		ReminiscenceNotes:  strings.TrimSpace(reminiscenceNotes),
+		SignificantPlaces:  parseStringList(significantPlaces),
+		LifeChapters:       parseStringList(lifeChapters),
+		FavoriteMusic:      parseStringList(favoriteMusic),
+		FavoriteShowsFilms: parseStringList(favoriteShowsFilms),
+		TopicsToRevisit:    parseStringList(topicsToRevisit),
 	}
 	patient.ConversationGuidance = ConversationGuidance{
 		PreferredGreetingStyle: strings.TrimSpace(preferredGreetingStyle),

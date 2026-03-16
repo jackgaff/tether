@@ -214,6 +214,106 @@ func (h *Handler) UpdatePatient(w http.ResponseWriter, r *http.Request) {
 	respond.JSON(w, http.StatusOK, patient, nil)
 }
 
+func (h *Handler) ListPatientPeople(w http.ResponseWriter, r *http.Request) {
+	patientID := strings.TrimSpace(r.PathValue("id"))
+	if _, ok, err := h.store.GetPatient(r.Context(), patientID); err != nil {
+		respond.Error(w, http.StatusInternalServerError, "store_error", "Could not load patient people.")
+		return
+	} else if !ok {
+		respond.Error(w, http.StatusNotFound, "not_found", "Patient not found.")
+		return
+	}
+
+	people, err := h.store.ListPatientPeople(r.Context(), patientID)
+	if err != nil {
+		respond.Error(w, http.StatusInternalServerError, "store_error", "Could not load patient people.")
+		return
+	}
+	if people == nil {
+		people = []PatientPerson{}
+	}
+	respond.JSON(w, http.StatusOK, people, map[string]any{"count": len(people)})
+}
+
+func (h *Handler) UpdatePatientPerson(w http.ResponseWriter, r *http.Request) {
+	patientID := strings.TrimSpace(r.PathValue("id"))
+	personID := strings.TrimSpace(r.PathValue("personId"))
+	if _, ok, err := h.store.GetPatient(r.Context(), patientID); err != nil {
+		respond.Error(w, http.StatusInternalServerError, "store_error", "Could not update patient person.")
+		return
+	} else if !ok {
+		respond.Error(w, http.StatusNotFound, "not_found", "Patient not found.")
+		return
+	}
+
+	var input UpdatePatientPersonRequest
+	if err := decodeJSONBody(r, &input); err != nil {
+		respond.Error(w, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+	if err := validateUpdatePatientPersonInput(input); err != nil {
+		respond.Error(w, http.StatusBadRequest, "validation_error", err.Error())
+		return
+	}
+
+	person, err := h.store.UpdatePatientPerson(r.Context(), patientID, personID, input)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrPatientPersonNotFound):
+			respond.Error(w, http.StatusNotFound, "not_found", "Patient person not found.")
+		case isValidationError(err):
+			respond.Error(w, http.StatusBadRequest, "validation_error", err.Error())
+		default:
+			respond.Error(w, http.StatusInternalServerError, "store_error", "Could not update patient person.")
+		}
+		return
+	}
+
+	respond.JSON(w, http.StatusOK, person, nil)
+}
+
+func (h *Handler) ListMemoryBankEntries(w http.ResponseWriter, r *http.Request) {
+	patientID := strings.TrimSpace(r.PathValue("id"))
+	if _, ok, err := h.store.GetPatient(r.Context(), patientID); err != nil {
+		respond.Error(w, http.StatusInternalServerError, "store_error", "Could not load memory bank entries.")
+		return
+	} else if !ok {
+		respond.Error(w, http.StatusNotFound, "not_found", "Patient not found.")
+		return
+	}
+
+	entries, err := h.store.ListMemoryBankEntries(r.Context(), patientID)
+	if err != nil {
+		respond.Error(w, http.StatusInternalServerError, "store_error", "Could not load memory bank entries.")
+		return
+	}
+	if entries == nil {
+		entries = []MemoryBankEntry{}
+	}
+	respond.JSON(w, http.StatusOK, entries, map[string]any{"count": len(entries)})
+}
+
+func (h *Handler) ListPatientReminders(w http.ResponseWriter, r *http.Request) {
+	patientID := strings.TrimSpace(r.PathValue("id"))
+	if _, ok, err := h.store.GetPatient(r.Context(), patientID); err != nil {
+		respond.Error(w, http.StatusInternalServerError, "store_error", "Could not load reminders.")
+		return
+	} else if !ok {
+		respond.Error(w, http.StatusNotFound, "not_found", "Patient not found.")
+		return
+	}
+
+	reminders, err := h.store.ListPatientReminders(r.Context(), patientID)
+	if err != nil {
+		respond.Error(w, http.StatusInternalServerError, "store_error", "Could not load reminders.")
+		return
+	}
+	if reminders == nil {
+		reminders = []Reminder{}
+	}
+	respond.JSON(w, http.StatusOK, reminders, map[string]any{"count": len(reminders)})
+}
+
 func (h *Handler) GetScreeningSchedule(w http.ResponseWriter, r *http.Request) {
 	patientID := strings.TrimSpace(r.PathValue("id"))
 	schedule, ok, err := h.store.GetScreeningSchedule(r.Context(), patientID)
@@ -586,6 +686,19 @@ func validatePatientInput(input CreatePatientRequest) error {
 	}
 	if _, err := time.LoadLocation(strings.TrimSpace(input.Timezone)); err != nil {
 		return errors.New("timezone must be a valid IANA timezone")
+	}
+	return nil
+}
+
+func validateUpdatePatientPersonInput(input UpdatePatientPersonRequest) error {
+	if strings.TrimSpace(input.Name) == "" {
+		return newValidationError("name is required")
+	}
+	if !contains([]string{PersonStatusConfirmedLiving, PersonStatusUnknown, PersonStatusDeceased}, strings.TrimSpace(input.Status)) {
+		return newValidationError("status must be confirmed_living, unknown, or deceased")
+	}
+	if !contains([]string{RelationshipQualityCloseActive, RelationshipQualityUnclear, RelationshipQualityEstranged, RelationshipQualityUnknown}, strings.TrimSpace(input.RelationshipQuality)) {
+		return newValidationError("relationshipQuality must be close_active, unclear, estranged, or unknown")
 	}
 	return nil
 }

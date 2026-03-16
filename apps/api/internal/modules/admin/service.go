@@ -2,10 +2,12 @@ package admin
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
 	"nova-echoes/api/internal/modules/voice"
+	"nova-echoes/api/internal/prompts"
 )
 
 type VoiceSessionCreator interface {
@@ -14,6 +16,7 @@ type VoiceSessionCreator interface {
 
 type serviceStore interface {
 	GetPatient(ctx context.Context, patientID string) (Patient, bool, error)
+	GetCallPromptContext(ctx context.Context, patientID string) (CallPromptContext, error)
 	GetConsentState(ctx context.Context, patientID string) (ConsentState, bool, error)
 	GetCallTemplateByID(ctx context.Context, templateID string) (CallTemplate, bool, error)
 	ResolveActiveCallTemplateByType(ctx context.Context, callType string) (CallTemplate, error)
@@ -99,9 +102,14 @@ func (s *Service) CreateCall(ctx context.Context, patientID string, input Create
 
 	response := CreateCallResponse{CallRun: callRun}
 	if channel == CallChannelBrowser {
+		systemPrompt, renderErr := s.renderCallPrompt(ctx, patient, template)
+		if renderErr != nil {
+			_ = s.store.MarkCallRunFailed(ctx, callRun.ID, "call_prompt_render_failed", s.now())
+			return CreateCallResponse{}, renderErr
+		}
 		session, sessionErr := s.voiceCreator.CreateSession(ctx, voice.CreateSessionRequest{
 			PatientID:    patient.ID,
-			SystemPrompt: template.SystemPromptTemplate,
+			SystemPrompt: systemPrompt,
 			CallRunID:    callRun.ID,
 		})
 		if sessionErr != nil {
@@ -213,6 +221,9 @@ func (s *Service) resolveCallTemplate(ctx context.Context, patient Patient, inpu
 		if strings.TrimSpace(input.CallType) == "" {
 			return CallTemplate{}, newValidationError("callTemplateId or callType is required")
 		}
+		if !contains(activeCallTypes(), strings.TrimSpace(input.CallType)) {
+			return CallTemplate{}, newValidationError("callType must be check_in or reminiscence")
+		}
 
 		return s.store.ResolveActiveCallTemplateByType(ctx, input.CallType)
 	case CallTriggerFollowUpRecommendation:
@@ -240,6 +251,10 @@ func (s *Service) resolveCallTemplate(ctx context.Context, patient Patient, inpu
 
 func validCallTypes() []string {
 	return []string{CallTypeScreening, CallTypeCheckIn, CallTypeReminiscence}
+}
+
+func activeCallTypes() []string {
+	return prompts.ActiveCallTypes()
 }
 
 func validCallTriggers() []string {
@@ -279,6 +294,30 @@ func validScreeningInterpretations() []string {
 	}
 }
 
+func validOrientationStatuses() []string {
+	return []string{OrientationStatusOriented, OrientationStatusMildlyConfused, OrientationStatusDisoriented}
+}
+
+func validCheckInCaptureStatuses() []string {
+	return []string{CheckInCaptureReported, CheckInCaptureUncertain, CheckInCaptureNotRecalled}
+}
+
+func validSocialContactStatuses() []string {
+	return []string{SocialContactYes, SocialContactNo}
+}
+
+func validCheckInMoods() []string {
+	return []string{CheckInMoodCalm, CheckInMoodWithdrawn, CheckInMoodDistressed, CheckInMoodElevated}
+}
+
+func validSleepStatuses() []string {
+	return []string{SleepStatusGood, SleepStatusPoor, SleepStatusReversed}
+}
+
+func validAnchorTypes() []string {
+	return []string{AnchorTypeCall, AnchorTypeMusic, AnchorTypeShowFilm, AnchorTypeJournal, AnchorTypeNone}
+}
+
 func contains(values []string, target string) bool {
 	for _, value := range values {
 		if value == target {
@@ -286,4 +325,99 @@ func contains(values []string, target string) bool {
 		}
 	}
 	return false
+}
+
+func (s *Service) renderCallPrompt(ctx context.Context, patient Patient, template CallTemplate) (string, error) {
+	promptContext, err := s.store.GetCallPromptContext(ctx, patient.ID)
+	if err != nil {
+		return "", err
+	}
+
+	now := s.now().In(loadLocationOrUTC(patient.Timezone))
+	rendered, err := prompts.RenderCallPrompt(template.SystemPromptTemplate, prompts.RenderContext{
+		PatientFirstName:             chooseString(strings.TrimSpace(patient.PreferredName), strings.TrimSpace(patient.DisplayName)),
+		CurrentWeekday:               now.Weekday().String(),
+		CurrentDateLong:              now.Format("January 2, 2006"),
+		RoutineAnchorsBlock:          renderPromptList(promptContext.Patient.RoutineAnchors),
+		FavoriteTopicsBlock:          renderPromptList(promptContext.Patient.FavoriteTopics),
+		CalmingCuesBlock:             renderPromptList(promptContext.Patient.CalmingCues),
+		TopicsToAvoidBlock:           renderPromptList(promptContext.Patient.TopicsToAvoid),
+		KnownInterestsBlock:          renderPromptList(promptContext.Patient.MemoryProfile.Likes),
+		SignificantPlacesBlock:       renderPromptList(promptContext.Patient.MemoryProfile.SignificantPlaces),
+		LifeChaptersBlock:            renderPromptList(promptContext.Patient.MemoryProfile.LifeChapters),
+		FavoriteMusicBlock:           renderPromptList(promptContext.Patient.MemoryProfile.FavoriteMusic),
+		FavoriteShowsFilmsBlock:      renderPromptList(promptContext.Patient.MemoryProfile.FavoriteShowsFilms),
+		TopicsToRevisitBlock:         renderPromptList(promptContext.Patient.MemoryProfile.TopicsToRevisit),
+		SafePeopleForCallAnchorBlock: renderPeoplePromptList(promptContext.SafePeopleForCallAnchor),
+		PeopleToAvoidNamingBlock:     renderPeoplePromptList(promptContext.PeopleToAvoidNaming),
+		RecentMemoryFollowUpsBlock:   renderMemoryFollowUpList(promptContext.RecentMemoryBankEntries),
+	})
+	if err != nil {
+		return "", fmt.Errorf("render call prompt: %w", err)
+	}
+	return rendered, nil
+}
+
+func loadLocationOrUTC(timezone string) *time.Location {
+	location, err := time.LoadLocation(strings.TrimSpace(timezone))
+	if err != nil {
+		return time.UTC
+	}
+	return location
+}
+
+func renderPromptList(values []string) string {
+	normalized := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		normalized = append(normalized, "- "+trimmed)
+	}
+	if len(normalized) == 0 {
+		return "- None noted yet."
+	}
+	return strings.Join(normalized, "\n")
+}
+
+func renderPeoplePromptList(people []PatientPerson) string {
+	lines := make([]string, 0, len(people))
+	for _, person := range people {
+		parts := []string{strings.TrimSpace(person.Name)}
+		if relationship := strings.TrimSpace(person.Relationship); relationship != "" {
+			parts = append(parts, "("+relationship+")")
+		}
+		if context := strings.TrimSpace(person.Context); context != "" {
+			parts = append(parts, "- "+context)
+		}
+		line := strings.TrimSpace(strings.Join(parts, " "))
+		if line == "" {
+			continue
+		}
+		lines = append(lines, "- "+line)
+	}
+	if len(lines) == 0 {
+		return "- None confirmed."
+	}
+	return strings.Join(lines, "\n")
+}
+
+func renderMemoryFollowUpList(entries []MemoryBankEntry) string {
+	lines := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		followUp := strings.TrimSpace(entry.SuggestedFollowUp)
+		if followUp == "" {
+			continue
+		}
+		if topic := strings.TrimSpace(entry.Topic); topic != "" {
+			lines = append(lines, "- "+topic+": "+followUp)
+			continue
+		}
+		lines = append(lines, "- "+followUp)
+	}
+	if len(lines) == 0 {
+		return "- No follow-up threads logged yet."
+	}
+	return strings.Join(lines, "\n")
 }
