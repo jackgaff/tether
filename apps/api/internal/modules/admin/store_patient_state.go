@@ -628,14 +628,15 @@ func (s *PostgresStore) updateRunningMemoryProfileTx(ctx context.Context, tx *sq
 
 	if _, err := tx.ExecContext(ctx, `
 		update patient_memory_profiles
-		set significant_places = $2,
-		    life_chapters = $3,
-		    favorite_music = $4,
-		    favorite_shows_films = $5,
-		    topics_to_revisit = $6,
+		set likes = $2,
+		    significant_places = $3,
+		    life_chapters = $4,
+		    favorite_music = $5,
+		    favorite_shows_films = $6,
+		    topics_to_revisit = $7,
 		    updated_at = now()
 		where patient_id = $1
-	`, strings.TrimSpace(patientID), marshalStringList(mergeStringLists(patient.MemoryProfile.SignificantPlaces, reminiscence.MentionedPlaces)), marshalStringList(mergeStringLists(patient.MemoryProfile.LifeChapters, reminiscence.LifeChapters)), marshalStringList(mergeStringLists(patient.MemoryProfile.FavoriteMusic, reminiscence.MentionedMusic)), marshalStringList(mergeStringLists(patient.MemoryProfile.FavoriteShowsFilms, reminiscence.MentionedShowsFilms)), marshalStringList(mergeStringLists(patient.MemoryProfile.TopicsToRevisit, topicsToRevisit))); err != nil {
+	`, strings.TrimSpace(patientID), marshalStringList(mergeStringLists(patient.MemoryProfile.Likes, reminiscence.RespondedWellTo)), marshalStringList(mergeStringLists(patient.MemoryProfile.SignificantPlaces, reminiscence.MentionedPlaces)), marshalStringList(mergeStringLists(patient.MemoryProfile.LifeChapters, reminiscence.LifeChapters)), marshalStringList(mergeStringLists(patient.MemoryProfile.FavoriteMusic, reminiscence.MentionedMusic)), marshalStringList(mergeStringLists(patient.MemoryProfile.FavoriteShowsFilms, reminiscence.MentionedShowsFilms)), marshalStringList(mergeStringLists(patient.MemoryProfile.TopicsToRevisit, topicsToRevisit))); err != nil {
 		return fmt.Errorf("update running memory profile: %w", err)
 	}
 

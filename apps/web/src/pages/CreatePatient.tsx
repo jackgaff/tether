@@ -114,6 +114,11 @@ export function CreatePatient({
           })),
           lifeEvents: [],
           reminiscenceNotes: memoriesNotes.trim(),
+          significantPlaces: [],
+          lifeChapters: [],
+          favoriteMusic: [],
+          favoriteShowsFilms: [],
+          topicsToRevisit: [],
         },
         conversationGuidance: {
           calmingTopics: interests,

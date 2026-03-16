@@ -354,8 +354,11 @@ export default function App() {
           <ScheduleCall
             patientId={patientId}
             patient={dashboard?.patient ?? null}
+            onScheduleUpdated={() => {
+              void fetchDashboard(patientId);
+            }}
             onCallStarted={() => {
-              fetchDashboard(patientId);
+              void fetchDashboard(patientId);
               setCurrentPage("recent-calls");
             }}
           />

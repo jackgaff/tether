@@ -283,9 +283,23 @@ func TestAdminCaregiverFlowWithVoiceLifecycleAndAnalysis(t *testing.T) {
 		t.Fatal("expected memory bank entry from reminiscence analysis")
 	}
 
+	var refreshedPatient admin.Patient
+	doJSON(t, client, http.MethodGet, server.URL+"/api/v1/admin/patients/"+patient.ID, nil, http.StatusOK, &refreshedPatient)
+	if !containsString(refreshedPatient.MemoryProfile.Likes, "Family stories") {
+		t.Fatalf("expected reminiscence learnings merged into likes, got %+v", refreshedPatient.MemoryProfile.Likes)
+	}
+
 	doJSON(t, client, http.MethodGet, server.URL+"/api/v1/admin/patients/"+patient.ID+"/people", nil, http.StatusOK, &people)
 	if len(people) == 0 {
 		t.Fatal("expected patient people materialized from reminiscence analysis")
+	}
+
+	doJSON(t, client, http.MethodGet, server.URL+"/api/v1/admin/patients/"+patient.ID+"/dashboard", nil, http.StatusOK, &dashboard)
+	if len(dashboard.RecentMemoryBankEntries) == 0 {
+		t.Fatal("expected recent memory bank entries in dashboard")
+	}
+	if len(dashboard.PatientPeople) == 0 {
+		t.Fatal("expected patient people in dashboard")
 	}
 
 	var updatedPerson admin.PatientPerson
@@ -335,6 +349,15 @@ func newAdminIntegrationHandler(t *testing.T, database *sql.DB, cfg config.Confi
 		Admin:       admin.NewHandler(adminStore, adminService, adminSessions),
 		AdminAuth:   adminSessions.Middleware(),
 	})
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 type staticAnalysisRunner struct{}
