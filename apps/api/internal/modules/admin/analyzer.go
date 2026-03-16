@@ -73,6 +73,7 @@ func (a *BedrockAnalyzer) Analyze(ctx context.Context, promptContext AnalysisPro
 	if err := json.Unmarshal([]byte(jsonBody), &payload); err != nil {
 		return AnalysisPayload{}, newValidationErrorf("decode analysis json: %v", err)
 	}
+	normalizeAnalysisPayload(&payload)
 
 	return payload, nil
 }

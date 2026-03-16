@@ -68,7 +68,14 @@ export function CreatePatient({ caregiverId, onCreated, onCancel }: Props) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!displayName.trim() || !caregiverId) return;
+    if (!displayName.trim()) {
+      setError("Please enter the patient's full name.");
+      return;
+    }
+    if (!caregiverId) {
+      setError("The caregiver profile is still being prepared. Please wait a moment and try again.");
+      return;
+    }
     setIsSubmitting(true);
     setError(null);
 
@@ -136,6 +143,12 @@ export function CreatePatient({ caregiverId, onCreated, onCancel }: Props) {
           </p>
         </div>
       </div>
+
+      {!caregiverId && (
+        <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Setting up the caregiver profile for this local demo. The patient form will work in a moment.
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* ── Section 1: Patient Info ── */}
@@ -366,7 +379,7 @@ export function CreatePatient({ caregiverId, onCreated, onCancel }: Props) {
           </button>
           <button
             type="submit"
-            disabled={isSubmitting || !displayName.trim()}
+            disabled={isSubmitting || !displayName.trim() || !caregiverId}
             className="px-6 py-2.5 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-700 disabled:opacity-50 transition-colors"
           >
             {isSubmitting ? "Creating..." : "Add Patient"}

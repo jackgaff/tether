@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Radio, UserPlus, LogOut } from "lucide-react";
 import { Sidebar } from "./components/Sidebar";
 import { Dashboard } from "./pages/Dashboard";
@@ -7,7 +7,7 @@ import { ScheduleCall } from "./pages/ScheduleCall";
 import { RecentCalls } from "./pages/RecentCalls";
 import { ApiSurface } from "./pages/ApiSurface";
 import { CreatePatient } from "./pages/CreatePatient";
-import { getAdminSession, loginAdmin, getDashboard, listPatients } from "./api/admin";
+import { createCaregiver, getAdminSession, loginAdmin, getDashboard, listPatients } from "./api/admin";
 import { useStoredString } from "./app/storage";
 import { STORAGE_KEYS } from "./app/constants";
 import type { AdminSession, DashboardSnapshot, Patient } from "./api/contracts";
@@ -36,6 +36,8 @@ export default function App() {
   const [caregiverId, setCaregiverId] = useStoredString(STORAGE_KEYS.caregiverId);
   const [patientList, setPatientList] = useState<Patient[]>([]);
   const [patientListLoading, setPatientListLoading] = useState(false);
+  const [caregiverBootstrapError, setCaregiverBootstrapError] = useState<string | null>(null);
+  const bootstrapAttemptedRef = useRef(false);
 
   // Dashboard data
   const [dashboard, setDashboard] = useState<DashboardSnapshot | null>(null);
@@ -57,6 +59,39 @@ export default function App() {
       .catch(() => setPatientList([]))
       .finally(() => setPatientListLoading(false));
   }, [session]);
+
+  useEffect(() => {
+    if (!session || caregiverId || patientListLoading || patientList.length > 0 || bootstrapAttemptedRef.current) {
+      return;
+    }
+
+    bootstrapAttemptedRef.current = true;
+    setCaregiverBootstrapError(null);
+
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "America/New_York";
+    const usernameSlug = session.username
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "demo-admin";
+
+    createCaregiver({
+      displayName: session.username
+        .trim()
+        .split(/[\s-_]+/)
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(" ") || "Demo Caregiver",
+      email: `${usernameSlug}@local.nova-echoes.test`,
+      phoneE164: "",
+      timezone
+    })
+      .then((caregiver) => setCaregiverId(caregiver.id))
+      .catch((err: any) => {
+        bootstrapAttemptedRef.current = false;
+        setCaregiverBootstrapError(err?.message ?? "Could not prepare the caregiver profile.");
+      });
+  }, [session, caregiverId, patientListLoading, patientList.length, setCaregiverId]);
 
   const fetchDashboard = useCallback(async (pid: string) => {
     setIsDashboardLoading(true);
@@ -180,6 +215,12 @@ export default function App() {
           <p className="text-sm text-gray-400 mb-6">
             Choose the patient you'd like to manage.
           </p>
+
+          {caregiverBootstrapError && (
+            <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {caregiverBootstrapError}
+            </p>
+          )}
 
           {patientListLoading ? (
             <p className="text-sm text-gray-400">Loading...</p>

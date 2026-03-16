@@ -295,7 +295,7 @@ func validScreeningInterpretations() []string {
 }
 
 func validOrientationStatuses() []string {
-	return []string{OrientationStatusOriented, OrientationStatusMildlyConfused, OrientationStatusDisoriented}
+	return []string{OrientationStatusOriented, OrientationStatusMildlyConfused, OrientationStatusDisoriented, OrientationStatusUnknown}
 }
 
 func validCheckInCaptureStatuses() []string {
@@ -303,15 +303,15 @@ func validCheckInCaptureStatuses() []string {
 }
 
 func validSocialContactStatuses() []string {
-	return []string{SocialContactYes, SocialContactNo}
+	return []string{SocialContactYes, SocialContactNo, SocialContactUnknown}
 }
 
 func validCheckInMoods() []string {
-	return []string{CheckInMoodCalm, CheckInMoodWithdrawn, CheckInMoodDistressed, CheckInMoodElevated}
+	return []string{CheckInMoodCalm, CheckInMoodWithdrawn, CheckInMoodDistressed, CheckInMoodElevated, CheckInMoodUnknown}
 }
 
 func validSleepStatuses() []string {
-	return []string{SleepStatusGood, SleepStatusPoor, SleepStatusReversed}
+	return []string{SleepStatusGood, SleepStatusPoor, SleepStatusReversed, SleepStatusUnknown}
 }
 
 func validAnchorTypes() []string {
