@@ -22,11 +22,21 @@ interface FamilyMember {
 
 interface Props {
   caregiverId: string;
+  caregiverBootstrapError?: string | null;
+  canRetryCaregiverBootstrap?: boolean;
+  onRetryCaregiverBootstrap?: () => void;
   onCreated: (patient: Patient) => void;
   onCancel: () => void;
 }
 
-export function CreatePatient({ caregiverId, onCreated, onCancel }: Props) {
+export function CreatePatient({
+  caregiverId,
+  caregiverBootstrapError,
+  canRetryCaregiverBootstrap = false,
+  onRetryCaregiverBootstrap,
+  onCreated,
+  onCancel
+}: Props) {
   // Basic info
   const [displayName, setDisplayName] = useState("");
   const [preferredName, setPreferredName] = useState("");
@@ -68,7 +78,16 @@ export function CreatePatient({ caregiverId, onCreated, onCancel }: Props) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!displayName.trim() || !caregiverId) return;
+    if (!displayName.trim()) {
+      setError("Please enter the patient's full name.");
+      return;
+    }
+    if (!caregiverId) {
+      setError(
+        caregiverBootstrapError ?? "The caregiver profile is still being prepared. Please wait a moment and try again."
+      );
+      return;
+    }
     setIsSubmitting(true);
     setError(null);
 
@@ -136,6 +155,24 @@ export function CreatePatient({ caregiverId, onCreated, onCancel }: Props) {
           </p>
         </div>
       </div>
+
+      {!caregiverId && (
+        <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <p>
+            {caregiverBootstrapError ??
+              "Setting up the caregiver profile for this local demo. The patient form will work in a moment."}
+          </p>
+          {canRetryCaregiverBootstrap && onRetryCaregiverBootstrap && (
+            <button
+              type="button"
+              onClick={onRetryCaregiverBootstrap}
+              className="mt-2 font-medium text-amber-900 underline underline-offset-2"
+            >
+              Retry caregiver setup
+            </button>
+          )}
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* ── Section 1: Patient Info ── */}
@@ -359,7 +396,7 @@ export function CreatePatient({ caregiverId, onCreated, onCancel }: Props) {
           </button>
           <button
             type="submit"
-            disabled={isSubmitting || !displayName.trim()}
+            disabled={isSubmitting || !displayName.trim() || !caregiverId}
             className="px-6 py-2.5 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-700 disabled:opacity-50 transition-colors"
           >
             {isSubmitting ? "Creating..." : "Add Patient"}

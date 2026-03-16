@@ -7,6 +7,7 @@ Rules:
 - Never suggest medication changes.
 - Never tell the patient what a symptom means medically.
 - Base every concern on transcript evidence.
+- If the call ended early or a section was not discussed, do not invent details. Use the allowed `unknown` or `uncertain` status and explain the gap in the related notes field.
 - If a reminder was declined, capture that clearly.
 - If delirium-watch signals appear, record them in structured notes only and keep escalation language factual.
 - Use escalation levels only: none, caregiver_soon, caregiver_now, clinical_review.
@@ -34,21 +35,21 @@ Required JSON shape:
     "goal": ""
   },
   "checkIn": {
-    "orientationStatus": "oriented|mildly_confused|disoriented",
+    "orientationStatus": "oriented|mildly_confused|disoriented|unknown",
     "orientationNotes": "",
     "mealsStatus": "reported|uncertain|not_recalled",
     "mealsDetail": "",
     "fluidsStatus": "reported|uncertain|not_recalled",
     "fluidsDetail": "",
     "activityDetail": "",
-    "socialContact": "yes|no",
+    "socialContact": "yes|no|unknown",
     "socialContactDetail": "",
     "remindersNoted": [{"title": "", "detail": ""}],
     "reminderDeclined": false,
     "reminderDeclinedTopic": "",
-    "mood": "calm|withdrawn|distressed|elevated",
+    "mood": "calm|withdrawn|distressed|elevated|unknown",
     "moodNotes": "",
-    "sleep": "good|poor|reversed",
+    "sleep": "good|poor|reversed|unknown",
     "sleepNotes": "",
     "memoryFlags": [""],
     "deliriumWatch": false,

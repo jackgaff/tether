@@ -2123,6 +2123,7 @@ components:
         - oriented
         - mildly_confused
         - disoriented
+        - unknown
     CheckInCaptureStatusValue:
       type: string
       enum:
@@ -2134,6 +2135,7 @@ components:
       enum:
         - yes
         - no
+        - unknown
     CheckInMoodValue:
       type: string
       enum:
@@ -2141,12 +2143,14 @@ components:
         - withdrawn
         - distressed
         - elevated
+        - unknown
     SleepStatusValue:
       type: string
       enum:
         - good
         - poor
         - reversed
+        - unknown
     AnchorTypeValue:
       type: string
       enum:

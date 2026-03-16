@@ -60,6 +60,7 @@ const (
 	OrientationStatusOriented       = "oriented"
 	OrientationStatusMildlyConfused = "mildly_confused"
 	OrientationStatusDisoriented    = "disoriented"
+	OrientationStatusUnknown        = "unknown"
 )
 
 const (
@@ -69,8 +70,9 @@ const (
 )
 
 const (
-	SocialContactYes = "yes"
-	SocialContactNo  = "no"
+	SocialContactYes     = "yes"
+	SocialContactNo      = "no"
+	SocialContactUnknown = "unknown"
 )
 
 const (
@@ -78,12 +80,14 @@ const (
 	CheckInMoodWithdrawn  = "withdrawn"
 	CheckInMoodDistressed = "distressed"
 	CheckInMoodElevated   = "elevated"
+	CheckInMoodUnknown    = "unknown"
 )
 
 const (
 	SleepStatusGood     = "good"
 	SleepStatusPoor     = "poor"
 	SleepStatusReversed = "reversed"
+	SleepStatusUnknown  = "unknown"
 )
 
 const (

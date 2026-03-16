@@ -6,6 +6,86 @@ import (
 	"time"
 )
 
+func normalizeAnalysisPayload(payload *AnalysisPayload) {
+	if payload == nil {
+		return
+	}
+
+	payload.EscalationLevel = normalizeEnumValue(payload.EscalationLevel, map[string]string{
+		"caregiver_soon":  EscalationCaregiverSoon,
+		"clinical_review": EscalationClinicalReview,
+	}, "")
+	payload.FollowUpIntent.TimeframeBucket = normalizeTimeframeBucket(payload.FollowUpIntent.TimeframeBucket)
+
+	if payload.NextCallRecommendation != nil {
+		payload.NextCallRecommendation.CallType = normalizeCallType(payload.NextCallRecommendation.CallType)
+		payload.NextCallRecommendation.WindowBucket = normalizeTimeframeBucket(payload.NextCallRecommendation.WindowBucket)
+	}
+
+	for index := range payload.RiskFlags {
+		payload.RiskFlags[index].Severity = normalizeEnumValue(payload.RiskFlags[index].Severity, map[string]string{
+			"warning": "watch",
+		}, "")
+		payload.RiskFlags[index].FlagType = strings.TrimSpace(payload.RiskFlags[index].FlagType)
+		payload.RiskFlags[index].Evidence = strings.TrimSpace(payload.RiskFlags[index].Evidence)
+		payload.RiskFlags[index].Reason = strings.TrimSpace(payload.RiskFlags[index].Reason)
+		payload.RiskFlags[index].WhyItMatters = strings.TrimSpace(payload.RiskFlags[index].WhyItMatters)
+	}
+
+	if payload.CheckIn != nil {
+		payload.CheckIn.OrientationStatus = normalizeEnumValue(payload.CheckIn.OrientationStatus, map[string]string{
+			"mildly_confused": OrientationStatusMildlyConfused,
+			"mild_confused":   OrientationStatusMildlyConfused,
+			"mild_confusion":  OrientationStatusMildlyConfused,
+			"confused":        OrientationStatusMildlyConfused,
+		}, OrientationStatusUnknown)
+		payload.CheckIn.MealsStatus = normalizeEnumValue(payload.CheckIn.MealsStatus, map[string]string{
+			"not recalled":   CheckInCaptureNotRecalled,
+			"not_recalled":   CheckInCaptureNotRecalled,
+			"not remembered": CheckInCaptureNotRecalled,
+			"mentioned":      CheckInCaptureReported,
+		}, CheckInCaptureUncertain)
+		payload.CheckIn.FluidsStatus = normalizeEnumValue(payload.CheckIn.FluidsStatus, map[string]string{
+			"not recalled":   CheckInCaptureNotRecalled,
+			"not_recalled":   CheckInCaptureNotRecalled,
+			"not remembered": CheckInCaptureNotRecalled,
+			"mentioned":      CheckInCaptureReported,
+		}, CheckInCaptureUncertain)
+		payload.CheckIn.SocialContact = normalizeEnumValue(payload.CheckIn.SocialContact, map[string]string{
+			"none":          SocialContactNo,
+			"not_discussed": SocialContactUnknown,
+		}, SocialContactUnknown)
+		payload.CheckIn.Mood = normalizeEnumValue(payload.CheckIn.Mood, map[string]string{
+			"neutral": CheckInMoodCalm,
+		}, CheckInMoodUnknown)
+		payload.CheckIn.Sleep = normalizeEnumValue(payload.CheckIn.Sleep, nil, SleepStatusUnknown)
+
+		for index := range payload.CheckIn.RemindersNoted {
+			payload.CheckIn.RemindersNoted[index].Title = strings.TrimSpace(payload.CheckIn.RemindersNoted[index].Title)
+			payload.CheckIn.RemindersNoted[index].Detail = strings.TrimSpace(payload.CheckIn.RemindersNoted[index].Detail)
+		}
+		for index := range payload.CheckIn.MemoryFlags {
+			payload.CheckIn.MemoryFlags[index] = strings.TrimSpace(payload.CheckIn.MemoryFlags[index])
+		}
+		for index := range payload.CheckIn.DeliriumPotentialTriggers {
+			payload.CheckIn.DeliriumPotentialTriggers[index] = strings.TrimSpace(payload.CheckIn.DeliriumPotentialTriggers[index])
+		}
+	}
+
+	if payload.Reminiscence != nil {
+		payload.Reminiscence.AnchorType = normalizeEnumValue(payload.Reminiscence.AnchorType, map[string]string{
+			"show":      AnchorTypeShowFilm,
+			"film":      AnchorTypeShowFilm,
+			"show_film": AnchorTypeShowFilm,
+		}, AnchorTypeNone)
+		for index := range payload.Reminiscence.MentionedPeople {
+			payload.Reminiscence.MentionedPeople[index].Name = strings.TrimSpace(payload.Reminiscence.MentionedPeople[index].Name)
+			payload.Reminiscence.MentionedPeople[index].Relationship = strings.TrimSpace(payload.Reminiscence.MentionedPeople[index].Relationship)
+			payload.Reminiscence.MentionedPeople[index].Context = strings.TrimSpace(payload.Reminiscence.MentionedPeople[index].Context)
+		}
+	}
+}
+
 func validateAnalysisPayload(callType string, payload AnalysisPayload) error {
 	if strings.TrimSpace(payload.Summary) == "" {
 		return newValidationError("analysis result summary is required")
@@ -224,6 +304,63 @@ func hasLegacyKeyword(payload AnalysisPayload, keywords ...string) bool {
 		return true
 	}
 	return false
+}
+
+func normalizeCallType(raw string) string {
+	return normalizeEnumValue(raw, map[string]string{
+		"checkin":     CallTypeCheckIn,
+		"check_in":    CallTypeCheckIn,
+		"reminisce":   CallTypeReminiscence,
+		"reminiscing": CallTypeReminiscence,
+	}, "")
+}
+
+func normalizeTimeframeBucket(raw string) string {
+	return normalizeEnumValue(raw, map[string]string{
+		"same_day":  TimeframeSameDay,
+		"few_days":  TimeframeFewDays,
+		"next_week": TimeframeNextWeek,
+		"two_weeks": TimeframeTwoWeeks,
+	}, "")
+}
+
+func normalizeEnumValue(raw string, aliases map[string]string, unknownFallback string) string {
+	normalized := normalizeToken(raw)
+	if normalized == "" {
+		return unknownFallback
+	}
+	if aliases != nil {
+		if canonical, ok := aliases[normalized]; ok {
+			return canonical
+		}
+	}
+	if isUnknownToken(normalized) {
+		return unknownFallback
+	}
+	return normalized
+}
+
+func normalizeToken(raw string) string {
+	trimmed := strings.TrimSpace(strings.ToLower(raw))
+	trimmed = strings.Trim(trimmed, `"'`)
+	if trimmed == "" {
+		return ""
+	}
+	replacer := strings.NewReplacer("-", "_", " ", "_", "/", "_")
+	trimmed = replacer.Replace(trimmed)
+	for strings.Contains(trimmed, "__") {
+		trimmed = strings.ReplaceAll(trimmed, "__", "_")
+	}
+	return strings.Trim(trimmed, "_")
+}
+
+func isUnknownToken(value string) bool {
+	switch value {
+	case "", "unknown", "unclear", "not_discussed", "not_mentioned", "not_asked", "not_assessed", "not_reached", "not_covered", "n_a", "na":
+		return true
+	default:
+		return false
+	}
 }
 
 func containsAnySubstring(value string, needles ...string) bool {
