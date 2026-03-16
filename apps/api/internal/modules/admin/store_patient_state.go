@@ -371,6 +371,14 @@ func (s *PostgresStore) materializeCheckInTx(ctx context.Context, tx *sql.Tx, in
 		}
 	}
 
+	if err := s.updateRunningCheckInProfileTx(ctx, tx, input.PatientID, *checkIn, input.Result.NextCallRecommendation); err != nil {
+		return err
+	}
+
+	if err := s.insertCheckInMemoryBankEntryTx(ctx, tx, input, analysisID, people); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -650,6 +658,93 @@ func (s *PostgresStore) updateRunningMemoryProfileTx(ctx context.Context, tx *sq
 	return nil
 }
 
+func (s *PostgresStore) updateRunningCheckInProfileTx(ctx context.Context, tx *sql.Tx, patientID string, checkIn CheckInAnalysis, nextCall *NextCallRecommendation) error {
+	patient, ok, err := s.getPatientTx(ctx, tx, patientID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrPatientNotFound
+	}
+
+	familyMembers := mergeFamilyMembers(patient.MemoryProfile.FamilyMembers, checkIn.MentionedPeople)
+	topicsToRevisit := append([]string{}, patient.MemoryProfile.TopicsToRevisit...)
+	for _, reminder := range checkIn.RemindersNoted {
+		topic := chooseString(strings.TrimSpace(reminder.Title), strings.TrimSpace(reminder.Detail))
+		if topic != "" {
+			topicsToRevisit = append(topicsToRevisit, topic)
+		}
+	}
+	if nextCall != nil && strings.TrimSpace(nextCall.Goal) != "" {
+		topicsToRevisit = append(topicsToRevisit, strings.TrimSpace(nextCall.Goal))
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		update patient_memory_profiles
+		set family_members = $2,
+		    topics_to_revisit = $3,
+		    updated_at = now()
+		where patient_id = $1
+	`, strings.TrimSpace(patientID), marshalJSON(familyMembers), marshalStringList(mergeStringLists(patient.MemoryProfile.TopicsToRevisit, topicsToRevisit))); err != nil {
+		return fmt.Errorf("update running check-in profile: %w", err)
+	}
+
+	return nil
+}
+
+func (s *PostgresStore) insertCheckInMemoryBankEntryTx(ctx context.Context, tx *sql.Tx, input SaveAnalysisResultInput, analysisID string, people []PatientPerson) error {
+	checkIn := input.Result.CheckIn
+	topic := deriveCheckInMemoryTopic(*checkIn, input.Result.NextCallRecommendation, people)
+	summary := chooseString(strings.TrimSpace(checkIn.CaregiverSummary), strings.TrimSpace(input.Result.Summary))
+	if topic == "" || summary == "" {
+		return nil
+	}
+
+	entryID, err := idgen.New()
+	if err != nil {
+		return err
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		insert into memory_bank_entries (
+			id,
+			patient_id,
+			source_call_run_id,
+			source_analysis_result_id,
+			topic,
+			summary,
+			emotional_tone,
+			responded_well_to,
+			anchor_offered,
+			anchor_type,
+			anchor_accepted,
+			anchor_detail,
+			suggested_followup,
+			occurred_at,
+			updated_at
+		) values ($1, $2, $3, $4, $5, $6, $7, $8, false, $9, false, null, $10, $11, $11)
+	`, entryID, input.PatientID, input.CallRunID, analysisID, topic, summary, nullableString(checkIn.Mood), marshalStringList(deriveCheckInRespondedWellTo(*checkIn, people)), AnchorTypeNone, nullableString(deriveCheckInSuggestedFollowUp(*checkIn, input.Result.NextCallRecommendation)), input.GeneratedAt); err != nil {
+		return fmt.Errorf("insert check-in memory bank entry: %w", err)
+	}
+
+	for _, person := range people {
+		if strings.TrimSpace(person.ID) == "" {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `
+			insert into memory_bank_entry_people (
+				memory_bank_entry_id,
+				patient_person_id
+			) values ($1, $2)
+			on conflict (memory_bank_entry_id, patient_person_id) do nothing
+		`, entryID, person.ID); err != nil {
+			return fmt.Errorf("attach check-in memory bank person: %w", err)
+		}
+	}
+
+	return nil
+}
+
 func (s *PostgresStore) matchSafePersonForAnchorTx(ctx context.Context, tx *sql.Tx, patientID, anchorDetail string) (string, error) {
 	detail := strings.ToLower(strings.TrimSpace(anchorDetail))
 	if detail == "" {
@@ -850,6 +945,95 @@ func mergeStringLists(existing []string, incoming []string) []string {
 		merged = append(merged, trimmed)
 	}
 	return merged
+}
+
+func mergeFamilyMembers(existing []FamilyMember, mentioned []MentionedPerson) []FamilyMember {
+	seen := make(map[string]struct{}, len(existing))
+	merged := make([]FamilyMember, 0, len(existing)+len(mentioned))
+	for _, member := range existing {
+		normalizedName := normalizePersonName(member.Name)
+		if normalizedName == "" {
+			continue
+		}
+		seen[normalizedName] = struct{}{}
+		merged = append(merged, member)
+	}
+
+	for _, person := range mentioned {
+		normalizedName := normalizePersonName(person.Name)
+		if normalizedName == "" || !isLikelyPersonalRelationship(person.Relationship) {
+			continue
+		}
+		if _, ok := seen[normalizedName]; ok {
+			continue
+		}
+		seen[normalizedName] = struct{}{}
+		merged = append(merged, FamilyMember{
+			Name:     strings.TrimSpace(person.Name),
+			Relation: strings.TrimSpace(person.Relationship),
+			Notes:    strings.TrimSpace(person.Context),
+		})
+	}
+
+	return merged
+}
+
+func isLikelyPersonalRelationship(relationship string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(relationship))
+	if normalized == "" {
+		return false
+	}
+	for _, blocked := range []string{"historical figure", "politician", "celebrity", "fictional"} {
+		if strings.Contains(normalized, blocked) {
+			return false
+		}
+	}
+	return true
+}
+
+func deriveCheckInMemoryTopic(checkIn CheckInAnalysis, nextCall *NextCallRecommendation, people []PatientPerson) string {
+	if len(people) > 0 {
+		for _, reminder := range checkIn.RemindersNoted {
+			detail := strings.ToLower(strings.TrimSpace(reminder.Title + " " + reminder.Detail))
+			if strings.Contains(detail, strings.ToLower(strings.TrimSpace(people[0].Name))) {
+				return fmt.Sprintf("Reconnecting with %s", strings.TrimSpace(people[0].Name))
+			}
+		}
+		return fmt.Sprintf("Conversation about %s", strings.TrimSpace(people[0].Name))
+	}
+	if len(checkIn.RemindersNoted) > 0 {
+		return chooseString(strings.TrimSpace(checkIn.RemindersNoted[0].Title), "Check-in follow-up")
+	}
+	if nextCall != nil && strings.TrimSpace(nextCall.Goal) != "" {
+		return "Check-in follow-up"
+	}
+	return ""
+}
+
+func deriveCheckInSuggestedFollowUp(checkIn CheckInAnalysis, nextCall *NextCallRecommendation) string {
+	if nextCall != nil && strings.TrimSpace(nextCall.Goal) != "" {
+		return strings.TrimSpace(nextCall.Goal)
+	}
+	if len(checkIn.RemindersNoted) > 0 {
+		return chooseString(strings.TrimSpace(checkIn.RemindersNoted[0].Detail), strings.TrimSpace(checkIn.RemindersNoted[0].Title))
+	}
+	return ""
+}
+
+func deriveCheckInRespondedWellTo(checkIn CheckInAnalysis, people []PatientPerson) []string {
+	values := make([]string, 0, len(people)+len(checkIn.RemindersNoted))
+	for _, person := range people {
+		if strings.TrimSpace(person.Name) != "" {
+			values = append(values, strings.TrimSpace(person.Name))
+		}
+	}
+	for _, reminder := range checkIn.RemindersNoted {
+		topic := chooseString(strings.TrimSpace(reminder.Title), strings.TrimSpace(reminder.Detail))
+		if topic != "" {
+			values = append(values, topic)
+		}
+	}
+	return mergeStringLists(nil, values)
 }
 
 func anchorTypeToReminderKind(anchorType string) string {

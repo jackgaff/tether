@@ -261,6 +261,9 @@ func TestAdminCaregiverFlowWithVoiceLifecycleAndAnalysis(t *testing.T) {
 	if len(dashboard.PatientPeople) == 0 {
 		t.Fatal("expected patient people materialized from check-in analysis")
 	}
+	if len(dashboard.RecentMemoryBankEntries) == 0 {
+		t.Fatal("expected memory bank entry materialized from check-in analysis")
+	}
 
 	var people []admin.PatientPerson
 	doJSON(t, client, http.MethodGet, server.URL+"/api/v1/admin/patients/"+patient.ID+"/people", nil, http.StatusOK, &people)
@@ -272,6 +275,15 @@ func TestAdminCaregiverFlowWithVoiceLifecycleAndAnalysis(t *testing.T) {
 	doJSON(t, client, http.MethodGet, server.URL+"/api/v1/admin/patients/"+patient.ID+"/reminders", nil, http.StatusOK, &reminders)
 	if len(reminders) == 0 {
 		t.Fatal("expected reminders materialized from check-in analysis")
+	}
+
+	var enrichedAfterCheckIn admin.Patient
+	doJSON(t, client, http.MethodGet, server.URL+"/api/v1/admin/patients/"+patient.ID, nil, http.StatusOK, &enrichedAfterCheckIn)
+	if !containsFamilyMember(enrichedAfterCheckIn.MemoryProfile.FamilyMembers, "Sam") {
+		t.Fatalf("expected check-in person merged into family members, got %+v", enrichedAfterCheckIn.MemoryProfile.FamilyMembers)
+	}
+	if len(enrichedAfterCheckIn.MemoryProfile.TopicsToRevisit) == 0 {
+		t.Fatal("expected check-in topics to revisit to be persisted")
 	}
 
 	var reminisceCall admin.CreateCallResponse
@@ -360,6 +372,15 @@ func newAdminIntegrationHandler(t *testing.T, database *sql.DB, cfg config.Confi
 func containsString(values []string, target string) bool {
 	for _, value := range values {
 		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+func containsFamilyMember(values []admin.FamilyMember, name string) bool {
+	for _, value := range values {
+		if value.Name == name {
 			return true
 		}
 	}
