@@ -11,15 +11,29 @@ func normalizeAnalysisPayload(payload *AnalysisPayload) {
 		return
 	}
 
+	payload.Summary = strings.TrimSpace(payload.Summary)
+	payload.CaregiverReviewReason = strings.TrimSpace(payload.CaregiverReviewReason)
+	payload.FollowUpIntent.Evidence = strings.TrimSpace(payload.FollowUpIntent.Evidence)
 	payload.EscalationLevel = normalizeEnumValue(payload.EscalationLevel, map[string]string{
 		"caregiver_soon":  EscalationCaregiverSoon,
 		"clinical_review": EscalationClinicalReview,
 	}, "")
 	payload.FollowUpIntent.TimeframeBucket = normalizeTimeframeBucket(payload.FollowUpIntent.TimeframeBucket)
+	normalizedEvidence := make([]SalientEvidence, 0, len(payload.SalientEvidence))
+	for _, evidence := range payload.SalientEvidence {
+		evidence.Quote = strings.TrimSpace(evidence.Quote)
+		evidence.Reason = strings.TrimSpace(evidence.Reason)
+		if evidence.Quote == "" && evidence.Reason == "" {
+			continue
+		}
+		normalizedEvidence = append(normalizedEvidence, evidence)
+	}
+	payload.SalientEvidence = normalizedEvidence
 
 	if payload.NextCallRecommendation != nil {
 		payload.NextCallRecommendation.CallType = normalizeCallType(payload.NextCallRecommendation.CallType)
 		payload.NextCallRecommendation.WindowBucket = normalizeTimeframeBucket(payload.NextCallRecommendation.WindowBucket)
+		payload.NextCallRecommendation.Goal = strings.TrimSpace(payload.NextCallRecommendation.Goal)
 	}
 
 	for index := range payload.RiskFlags {
@@ -30,6 +44,9 @@ func normalizeAnalysisPayload(payload *AnalysisPayload) {
 		payload.RiskFlags[index].Evidence = strings.TrimSpace(payload.RiskFlags[index].Evidence)
 		payload.RiskFlags[index].Reason = strings.TrimSpace(payload.RiskFlags[index].Reason)
 		payload.RiskFlags[index].WhyItMatters = strings.TrimSpace(payload.RiskFlags[index].WhyItMatters)
+		if payload.RiskFlags[index].WhyItMatters == "" {
+			payload.RiskFlags[index].WhyItMatters = chooseString(payload.RiskFlags[index].Reason, payload.RiskFlags[index].Evidence)
+		}
 	}
 
 	if payload.CheckIn != nil {
@@ -59,17 +76,20 @@ func normalizeAnalysisPayload(payload *AnalysisPayload) {
 			"neutral": CheckInMoodCalm,
 		}, CheckInMoodUnknown)
 		payload.CheckIn.Sleep = normalizeEnumValue(payload.CheckIn.Sleep, nil, SleepStatusUnknown)
-
-		for index := range payload.CheckIn.RemindersNoted {
-			payload.CheckIn.RemindersNoted[index].Title = strings.TrimSpace(payload.CheckIn.RemindersNoted[index].Title)
-			payload.CheckIn.RemindersNoted[index].Detail = strings.TrimSpace(payload.CheckIn.RemindersNoted[index].Detail)
-		}
-		for index := range payload.CheckIn.MemoryFlags {
-			payload.CheckIn.MemoryFlags[index] = strings.TrimSpace(payload.CheckIn.MemoryFlags[index])
-		}
-		for index := range payload.CheckIn.DeliriumPotentialTriggers {
-			payload.CheckIn.DeliriumPotentialTriggers[index] = strings.TrimSpace(payload.CheckIn.DeliriumPotentialTriggers[index])
-		}
+		payload.CheckIn.OrientationNotes = strings.TrimSpace(payload.CheckIn.OrientationNotes)
+		payload.CheckIn.MealsDetail = strings.TrimSpace(payload.CheckIn.MealsDetail)
+		payload.CheckIn.FluidsDetail = strings.TrimSpace(payload.CheckIn.FluidsDetail)
+		payload.CheckIn.ActivityDetail = strings.TrimSpace(payload.CheckIn.ActivityDetail)
+		payload.CheckIn.SocialContactDetail = strings.TrimSpace(payload.CheckIn.SocialContactDetail)
+		payload.CheckIn.ReminderDeclinedTopic = strings.TrimSpace(payload.CheckIn.ReminderDeclinedTopic)
+		payload.CheckIn.MoodNotes = strings.TrimSpace(payload.CheckIn.MoodNotes)
+		payload.CheckIn.SleepNotes = strings.TrimSpace(payload.CheckIn.SleepNotes)
+		payload.CheckIn.DeliriumWatchNotes = strings.TrimSpace(payload.CheckIn.DeliriumWatchNotes)
+		payload.CheckIn.CaregiverSummary = strings.TrimSpace(payload.CheckIn.CaregiverSummary)
+		payload.CheckIn.MentionedPeople = normalizeMentionedPeople(payload.CheckIn.MentionedPeople)
+		payload.CheckIn.RemindersNoted = normalizeReminderNotes(payload.CheckIn.RemindersNoted)
+		payload.CheckIn.MemoryFlags = normalizeStringList(payload.CheckIn.MemoryFlags)
+		payload.CheckIn.DeliriumPotentialTriggers = normalizeStringList(payload.CheckIn.DeliriumPotentialTriggers)
 	}
 
 	if payload.Reminiscence != nil {
@@ -78,11 +98,18 @@ func normalizeAnalysisPayload(payload *AnalysisPayload) {
 			"film":      AnchorTypeShowFilm,
 			"show_film": AnchorTypeShowFilm,
 		}, AnchorTypeNone)
-		for index := range payload.Reminiscence.MentionedPeople {
-			payload.Reminiscence.MentionedPeople[index].Name = strings.TrimSpace(payload.Reminiscence.MentionedPeople[index].Name)
-			payload.Reminiscence.MentionedPeople[index].Relationship = strings.TrimSpace(payload.Reminiscence.MentionedPeople[index].Relationship)
-			payload.Reminiscence.MentionedPeople[index].Context = strings.TrimSpace(payload.Reminiscence.MentionedPeople[index].Context)
-		}
+		payload.Reminiscence.Topic = strings.TrimSpace(payload.Reminiscence.Topic)
+		payload.Reminiscence.Summary = strings.TrimSpace(payload.Reminiscence.Summary)
+		payload.Reminiscence.EmotionalTone = strings.TrimSpace(payload.Reminiscence.EmotionalTone)
+		payload.Reminiscence.AnchorDetail = strings.TrimSpace(payload.Reminiscence.AnchorDetail)
+		payload.Reminiscence.SuggestedFollowUp = strings.TrimSpace(payload.Reminiscence.SuggestedFollowUp)
+		payload.Reminiscence.CaregiverSummary = strings.TrimSpace(payload.Reminiscence.CaregiverSummary)
+		payload.Reminiscence.MentionedPeople = normalizeMentionedPeople(payload.Reminiscence.MentionedPeople)
+		payload.Reminiscence.MentionedPlaces = normalizeStringList(payload.Reminiscence.MentionedPlaces)
+		payload.Reminiscence.MentionedMusic = normalizeStringList(payload.Reminiscence.MentionedMusic)
+		payload.Reminiscence.MentionedShowsFilms = normalizeStringList(payload.Reminiscence.MentionedShowsFilms)
+		payload.Reminiscence.LifeChapters = normalizeStringList(payload.Reminiscence.LifeChapters)
+		payload.Reminiscence.RespondedWellTo = normalizeStringList(payload.Reminiscence.RespondedWellTo)
 	}
 }
 
@@ -108,6 +135,11 @@ func validateAnalysisPayload(callType string, payload AnalysisPayload) error {
 		}
 		if flag.Confidence < 0 || flag.Confidence > 1 {
 			return newValidationError("analysis result riskFlags.confidence must be between 0 and 1")
+		}
+		if (flag.Severity == RiskSeverityWatch || flag.Severity == RiskSeverityUrgent) &&
+			strings.TrimSpace(flag.Evidence) == "" &&
+			strings.TrimSpace(flag.Reason) == "" {
+			return newValidationError("analysis result riskFlags with watch/urgent severity must include evidence or reason")
 		}
 	}
 	if payload.NextCallRecommendation != nil {
@@ -158,6 +190,11 @@ func validateAnalysisPayload(callType string, payload AnalysisPayload) error {
 		if !contains(validSleepStatuses(), payload.CheckIn.Sleep) {
 			return newValidationError("analysis result checkIn.sleep is invalid")
 		}
+		for _, person := range payload.CheckIn.MentionedPeople {
+			if strings.TrimSpace(person.Name) == "" {
+				return newValidationError("analysis result checkIn.mentionedPeople.name is required")
+			}
+		}
 		for _, reminder := range payload.CheckIn.RemindersNoted {
 			if strings.TrimSpace(reminder.Title) == "" && strings.TrimSpace(reminder.Detail) == "" {
 				return newValidationError("analysis result checkIn.remindersNoted entries must include a title or detail")
@@ -169,6 +206,12 @@ func validateAnalysisPayload(callType string, payload AnalysisPayload) error {
 		}
 		if payload.Reminiscence.AnchorType != "" && !contains(validAnchorTypes(), payload.Reminiscence.AnchorType) {
 			return newValidationError("analysis result reminiscence.anchorType is invalid")
+		}
+		if payload.Reminiscence.AnchorAccepted && !payload.Reminiscence.AnchorOffered {
+			return newValidationError("analysis result reminiscence.anchorAccepted requires anchorOffered")
+		}
+		if payload.Reminiscence.AnchorAccepted && chooseString(payload.Reminiscence.AnchorType, AnchorTypeNone) == AnchorTypeNone {
+			return newValidationError("analysis result reminiscence.anchorAccepted requires a concrete anchorType")
 		}
 		for _, person := range payload.Reminiscence.MentionedPeople {
 			if strings.TrimSpace(person.Name) == "" {
@@ -352,6 +395,63 @@ func normalizeToken(raw string) string {
 		trimmed = strings.ReplaceAll(trimmed, "__", "_")
 	}
 	return strings.Trim(trimmed, "_")
+}
+
+func normalizeStringList(values []string) []string {
+	normalized := make([]string, 0, len(values))
+	seen := map[string]struct{}{}
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		key := strings.ToLower(trimmed)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		normalized = append(normalized, trimmed)
+	}
+	return normalized
+}
+
+func normalizeMentionedPeople(values []MentionedPerson) []MentionedPerson {
+	normalized := make([]MentionedPerson, 0, len(values))
+	seen := map[string]struct{}{}
+	for _, person := range values {
+		person.Name = strings.TrimSpace(person.Name)
+		person.Relationship = strings.TrimSpace(person.Relationship)
+		person.Context = strings.TrimSpace(person.Context)
+		if person.Name == "" {
+			continue
+		}
+		key := strings.ToLower(person.Name + "|" + person.Relationship + "|" + person.Context)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		normalized = append(normalized, person)
+	}
+	return normalized
+}
+
+func normalizeReminderNotes(values []ReminderNote) []ReminderNote {
+	normalized := make([]ReminderNote, 0, len(values))
+	seen := map[string]struct{}{}
+	for _, reminder := range values {
+		reminder.Title = strings.TrimSpace(reminder.Title)
+		reminder.Detail = strings.TrimSpace(reminder.Detail)
+		if reminder.Title == "" && reminder.Detail == "" {
+			continue
+		}
+		key := strings.ToLower(reminder.Title + "|" + reminder.Detail)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		normalized = append(normalized, reminder)
+	}
+	return normalized
 }
 
 func isUnknownToken(value string) bool {

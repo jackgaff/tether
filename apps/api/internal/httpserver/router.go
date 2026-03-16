@@ -5,14 +5,14 @@ import (
 	"os"
 	"path/filepath"
 
-	"nova-echoes/api/internal/config"
-	"nova-echoes/api/internal/httpserver/middleware"
-	"nova-echoes/api/internal/httpserver/respond"
-	"nova-echoes/api/internal/modules/admin"
-	"nova-echoes/api/internal/modules/checkins"
-	"nova-echoes/api/internal/modules/health"
-	"nova-echoes/api/internal/modules/patients/preferences"
-	"nova-echoes/api/internal/modules/voice"
+	"tether/api/internal/config"
+	"tether/api/internal/httpserver/middleware"
+	"tether/api/internal/httpserver/respond"
+	"tether/api/internal/modules/admin"
+	"tether/api/internal/modules/checkins"
+	"tether/api/internal/modules/health"
+	"tether/api/internal/modules/patients/preferences"
+	"tether/api/internal/modules/voice"
 )
 
 type Dependencies struct {
@@ -35,7 +35,7 @@ func New(cfg config.Config, deps Dependencies) http.Handler {
 		respond.JSON(w, http.StatusOK, map[string]any{
 			"name":        cfg.AppName,
 			"environment": cfg.AppEnv,
-			"message":     "Nova Echoes API is ready for hackathon development.",
+			"message":     "Tether API is ready for hackathon development.",
 			"docsPath":    "/openapi.yaml",
 		}, nil)
 	}))
@@ -74,8 +74,11 @@ func New(cfg config.Config, deps Dependencies) http.Handler {
 		mux.Handle("GET /api/v1/admin/patients/{id}", middleware.Apply(http.HandlerFunc(deps.Admin.GetPatient), adminReadMiddleware...))
 		mux.Handle("PUT /api/v1/admin/patients/{id}", middleware.Apply(http.HandlerFunc(deps.Admin.UpdatePatient), adminWriteMiddleware...))
 		mux.Handle("GET /api/v1/admin/patients/{id}/people", middleware.Apply(http.HandlerFunc(deps.Admin.ListPatientPeople), adminReadMiddleware...))
+		mux.Handle("POST /api/v1/admin/patients/{id}/people", middleware.Apply(http.HandlerFunc(deps.Admin.CreatePatientPerson), adminWriteMiddleware...))
 		mux.Handle("PUT /api/v1/admin/patients/{id}/people/{personId}", middleware.Apply(http.HandlerFunc(deps.Admin.UpdatePatientPerson), adminWriteMiddleware...))
 		mux.Handle("GET /api/v1/admin/patients/{id}/memory-bank", middleware.Apply(http.HandlerFunc(deps.Admin.ListMemoryBankEntries), adminReadMiddleware...))
+		mux.Handle("POST /api/v1/admin/patients/{id}/memory-bank", middleware.Apply(http.HandlerFunc(deps.Admin.CreateMemoryBankEntry), adminWriteMiddleware...))
+		mux.Handle("PUT /api/v1/admin/patients/{id}/memory-bank/{entryId}", middleware.Apply(http.HandlerFunc(deps.Admin.UpdateMemoryBankEntry), adminWriteMiddleware...))
 		mux.Handle("GET /api/v1/admin/patients/{id}/reminders", middleware.Apply(http.HandlerFunc(deps.Admin.ListPatientReminders), adminReadMiddleware...))
 		mux.Handle("GET /api/v1/admin/patients/{id}/screening-schedule", middleware.Apply(http.HandlerFunc(deps.Admin.GetScreeningSchedule), adminReadMiddleware...))
 		mux.Handle("PUT /api/v1/admin/patients/{id}/screening-schedule", middleware.Apply(http.HandlerFunc(deps.Admin.PutScreeningSchedule), adminWriteMiddleware...))

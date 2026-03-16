@@ -12,13 +12,13 @@ import (
 	"strings"
 	"time"
 
-	"nova-echoes/api/internal/config"
-	"nova-echoes/api/internal/httpserver/middleware"
-	"nova-echoes/api/internal/httpserver/respond"
+	"tether/api/internal/config"
+	"tether/api/internal/httpserver/middleware"
+	"tether/api/internal/httpserver/respond"
 )
 
 const (
-	CookieName = "nova_echoes_admin_session"
+	CookieName = "tether_admin_session"
 	sessionTTL = 12 * time.Hour
 )
 

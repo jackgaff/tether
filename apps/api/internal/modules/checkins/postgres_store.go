@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"nova-echoes/api/internal/idgen"
+	"tether/api/internal/idgen"
 )
 
 type PostgresStore struct {

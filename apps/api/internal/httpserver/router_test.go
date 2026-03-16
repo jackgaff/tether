@@ -7,15 +7,15 @@ import (
 	"strings"
 	"testing"
 
-	"nova-echoes/api/internal/config"
-	"nova-echoes/api/internal/testsupport"
+	"tether/api/internal/config"
+	"tether/api/internal/testsupport"
 )
 
 func TestHealthRouteReportsConfigurationState(t *testing.T) {
 	t.Parallel()
 
 	handler := testsupport.NewHandler(config.Config{
-		AppName:        "Nova Echoes",
+		AppName:        "Tether",
 		AppEnv:         "test",
 		FrontendOrigin: "http://localhost:5173",
 		DatabaseURL:    "postgres://example",
@@ -55,7 +55,7 @@ func TestOpenAPIRouteIsServed(t *testing.T) {
 	t.Parallel()
 
 	handler := testsupport.NewHandler(config.Config{
-		AppName:        "Nova Echoes",
+		AppName:        "Tether",
 		AppEnv:         "test",
 		FrontendOrigin: "http://localhost:5173",
 		AuthMode:       "off",
@@ -79,7 +79,7 @@ func TestCORSPreflightAllowsConfiguredFrontend(t *testing.T) {
 	t.Parallel()
 
 	handler := testsupport.NewHandler(config.Config{
-		AppName:        "Nova Echoes",
+		AppName:        "Tether",
 		AppEnv:         "test",
 		FrontendOrigin: "http://localhost:5173",
 		AuthMode:       "off",

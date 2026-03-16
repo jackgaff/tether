@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"nova-echoes/api/internal/config"
+	"tether/api/internal/config"
 )
 
 var configKeys = []string{

@@ -16,7 +16,11 @@ import type {
   NextCallPlan,
   PausePatientInput,
   Patient,
+  PatientPerson,
+  PatientPersonInput,
   PatientInput,
+  MemoryBankEntry,
+  MemoryBankEntryInput,
   ScreeningSchedule,
   ScreeningScheduleInput,
   UpdateNextCallInput
@@ -81,6 +85,72 @@ export function updatePatient(id: string, input: PatientInput): Promise<Patient>
     method: "PUT",
     body: JSON.stringify(input)
   });
+}
+
+export function listPatientPeople(patientId: string): Promise<PatientPerson[]> {
+  return request<PatientPerson[]>(
+    `/api/v1/admin/patients/${encodeURIComponent(patientId)}/people`
+  );
+}
+
+export function createPatientPerson(
+  patientId: string,
+  input: PatientPersonInput
+): Promise<PatientPerson> {
+  return request<PatientPerson>(
+    `/api/v1/admin/patients/${encodeURIComponent(patientId)}/people`,
+    {
+      method: "POST",
+      body: JSON.stringify(input)
+    }
+  );
+}
+
+export function updatePatientPerson(
+  patientId: string,
+  personId: string,
+  input: PatientPersonInput
+): Promise<PatientPerson> {
+  return request<PatientPerson>(
+    `/api/v1/admin/patients/${encodeURIComponent(patientId)}/people/${encodeURIComponent(personId)}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(input)
+    }
+  );
+}
+
+export function listMemoryBankEntries(patientId: string): Promise<MemoryBankEntry[]> {
+  return request<MemoryBankEntry[]>(
+    `/api/v1/admin/patients/${encodeURIComponent(patientId)}/memory-bank`
+  );
+}
+
+export function createMemoryBankEntry(
+  patientId: string,
+  input: MemoryBankEntryInput
+): Promise<MemoryBankEntry> {
+  return request<MemoryBankEntry>(
+    `/api/v1/admin/patients/${encodeURIComponent(patientId)}/memory-bank`,
+    {
+      method: "POST",
+      body: JSON.stringify(input)
+    }
+  );
+}
+
+export function updateMemoryBankEntry(
+  patientId: string,
+  entryId: string,
+  input: MemoryBankEntryInput
+): Promise<MemoryBankEntry> {
+  return request<MemoryBankEntry>(
+    `/api/v1/admin/patients/${encodeURIComponent(patientId)}/memory-bank/${encodeURIComponent(entryId)}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(input)
+    }
+  );
 }
 
 export function getScreeningSchedule(patientId: string): Promise<ScreeningSchedule> {

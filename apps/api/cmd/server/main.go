@@ -10,8 +10,8 @@ import (
 	"syscall"
 	"time"
 
-	"nova-echoes/api/internal/app"
-	"nova-echoes/api/internal/config"
+	"tether/api/internal/app"
+	"tether/api/internal/config"
 )
 
 func main() {
@@ -32,7 +32,7 @@ func main() {
 	}
 
 	go func() {
-		log.Printf("nova-echoes api listening on http://localhost:%s", cfg.Port)
+		log.Printf("tether api listening on http://localhost:%s", cfg.Port)
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("listen: %v", err)
 		}

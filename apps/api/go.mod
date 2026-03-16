@@ -1,4 +1,4 @@
-module nova-echoes/api
+module tether/api
 
 go 1.24.5
 

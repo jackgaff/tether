@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"nova-echoes/api/internal/modules/voice"
+	"tether/api/internal/modules/voice"
 )
 
 type fakeServiceStore struct {

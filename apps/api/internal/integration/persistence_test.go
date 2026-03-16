@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"nova-echoes/api/db"
-	"nova-echoes/api/internal/modules/checkins"
-	"nova-echoes/api/internal/modules/patients/preferences"
-	"nova-echoes/api/internal/modules/voice"
+	"tether/api/db"
+	"tether/api/internal/modules/checkins"
+	"tether/api/internal/modules/patients/preferences"
+	"tether/api/internal/modules/voice"
 )
 
 func TestPostgresPersistence(t *testing.T) {

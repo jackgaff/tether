@@ -13,7 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	bedrocktypes "github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
-	"nova-echoes/api/internal/idgen"
+	"tether/api/internal/idgen"
 )
 
 type LiveSession interface {

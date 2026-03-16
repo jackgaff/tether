@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"nova-echoes/api/internal/modules/voicecatalog"
+	"tether/api/internal/modules/voicecatalog"
 )
 
 type Config struct {
@@ -65,7 +65,7 @@ func LoadFrom(baseDir string) (Config, error) {
 	var parseErr error
 
 	cfg := Config{
-		AppName:                   getEnv("APP_NAME", "Nova Echoes"),
+		AppName:                   getEnv("APP_NAME", "Tether"),
 		AppEnv:                    getEnv("APP_ENV", "development"),
 		Port:                      getEnv("API_PORT", "8080"),
 		FrontendOrigin:            getEnv("FRONTEND_ORIGIN", "http://localhost:5173"),

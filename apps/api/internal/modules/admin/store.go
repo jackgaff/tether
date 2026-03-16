@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
-	"nova-echoes/api/internal/idgen"
+	"tether/api/internal/idgen"
 )
 
 type Store interface {
@@ -24,8 +24,11 @@ type Store interface {
 	UpdatePatient(ctx context.Context, patientID string, input UpdatePatientRequest) (Patient, error)
 	GetCallPromptContext(ctx context.Context, patientID string) (CallPromptContext, error)
 	ListPatientPeople(ctx context.Context, patientID string) ([]PatientPerson, error)
+	CreatePatientPerson(ctx context.Context, patientID string, input CreatePatientPersonRequest, now time.Time) (PatientPerson, error)
 	UpdatePatientPerson(ctx context.Context, patientID, personID string, input UpdatePatientPersonRequest) (PatientPerson, error)
 	ListMemoryBankEntries(ctx context.Context, patientID string) ([]MemoryBankEntry, error)
+	CreateMemoryBankEntry(ctx context.Context, patientID string, input CreateMemoryBankEntryRequest, now time.Time) (MemoryBankEntry, error)
+	UpdateMemoryBankEntry(ctx context.Context, patientID, entryID string, input UpdateMemoryBankEntryRequest, now time.Time) (MemoryBankEntry, error)
 	ListPatientReminders(ctx context.Context, patientID string) ([]Reminder, error)
 	GetScreeningSchedule(ctx context.Context, patientID string) (ScreeningSchedule, bool, error)
 	PutScreeningSchedule(ctx context.Context, patientID string, input ScreeningScheduleInput, now time.Time) (ScreeningSchedule, error)
@@ -226,13 +229,14 @@ func (s *PostgresStore) CreatePatient(ctx context.Context, input CreatePatientRe
 			phone_e164,
 			timezone,
 			notes,
+			profile_photo_data_url,
 			routine_anchors,
 			favorite_topics,
 			calming_cues,
 			topics_to_avoid,
 			updated_at
-		) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now())
-	`, patientID, strings.TrimSpace(input.PrimaryCaregiverID), strings.TrimSpace(input.DisplayName), strings.TrimSpace(input.PreferredName), nullableString(input.PhoneE164), strings.TrimSpace(input.Timezone), nullableString(input.Notes), marshalStringList(input.RoutineAnchors), marshalStringList(input.FavoriteTopics), marshalStringList(input.CalmingCues), marshalStringList(input.TopicsToAvoid)); execErr != nil {
+		) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now())
+	`, patientID, strings.TrimSpace(input.PrimaryCaregiverID), strings.TrimSpace(input.DisplayName), strings.TrimSpace(input.PreferredName), nullableString(input.PhoneE164), strings.TrimSpace(input.Timezone), nullableString(input.Notes), nullableString(input.ProfilePhotoDataURL), marshalStringList(input.RoutineAnchors), marshalStringList(input.FavoriteTopics), marshalStringList(input.CalmingCues), marshalStringList(input.TopicsToAvoid)); execErr != nil {
 		switch {
 		case isForeignKeyViolation(execErr):
 			err = ErrCaregiverNotFound
@@ -342,14 +346,15 @@ func (s *PostgresStore) UpdatePatient(ctx context.Context, patientID string, inp
 		    phone_e164 = $5,
 		    timezone = $6,
 		    notes = $7,
-		    routine_anchors = $8,
-		    favorite_topics = $9,
-		    calming_cues = $10,
-		    topics_to_avoid = $11,
+		    profile_photo_data_url = $8,
+		    routine_anchors = $9,
+		    favorite_topics = $10,
+		    calming_cues = $11,
+		    topics_to_avoid = $12,
 		    updated_at = now()
 		where id = $1
 		returning id
-	`, strings.TrimSpace(patientID), strings.TrimSpace(input.PrimaryCaregiverID), strings.TrimSpace(input.DisplayName), strings.TrimSpace(input.PreferredName), nullableString(input.PhoneE164), strings.TrimSpace(input.Timezone), nullableString(input.Notes), marshalStringList(input.RoutineAnchors), marshalStringList(input.FavoriteTopics), marshalStringList(input.CalmingCues), marshalStringList(input.TopicsToAvoid))
+	`, strings.TrimSpace(patientID), strings.TrimSpace(input.PrimaryCaregiverID), strings.TrimSpace(input.DisplayName), strings.TrimSpace(input.PreferredName), nullableString(input.PhoneE164), strings.TrimSpace(input.Timezone), nullableString(input.Notes), nullableString(input.ProfilePhotoDataURL), marshalStringList(input.RoutineAnchors), marshalStringList(input.FavoriteTopics), marshalStringList(input.CalmingCues), marshalStringList(input.TopicsToAvoid))
 
 	var updatedID string
 	if scanErr := row.Scan(&updatedID); scanErr != nil {
@@ -1709,6 +1714,7 @@ const patientSelectBase = `
 		p.phone_e164,
 		p.timezone,
 		p.notes,
+		coalesce(p.profile_photo_data_url, ''),
 		p.calling_state,
 		p.pause_reason,
 		p.paused_at,
@@ -1853,6 +1859,7 @@ func scanPatient(row scanner) (Patient, error) {
 		patient                Patient
 		phone                  sql.NullString
 		notes                  sql.NullString
+		profilePhotoDataURL    string
 		pauseReason            sql.NullString
 		pausedAt               sql.NullTime
 		routineAnchors         []byte
@@ -1883,6 +1890,7 @@ func scanPatient(row scanner) (Patient, error) {
 		&phone,
 		&patient.Timezone,
 		&notes,
+		&profilePhotoDataURL,
 		&patient.CallingState,
 		&pauseReason,
 		&pausedAt,
@@ -1916,6 +1924,7 @@ func scanPatient(row scanner) (Patient, error) {
 	if notes.Valid {
 		patient.Notes = notes.String
 	}
+	patient.ProfilePhotoDataURL = strings.TrimSpace(profilePhotoDataURL)
 	if pauseReason.Valid {
 		patient.PauseReason = pauseReason.String
 	}

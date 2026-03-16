@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"nova-echoes/api/internal/idgen"
+	"tether/api/internal/idgen"
 )
 
 func (s *PostgresStore) GetCallPromptContext(ctx context.Context, patientID string) (CallPromptContext, error) {
@@ -44,6 +44,51 @@ func (s *PostgresStore) ListPatientPeople(ctx context.Context, patientID string)
 	return s.listPatientPeopleWithCondition(ctx, patientID, "1 = 1")
 }
 
+func (s *PostgresStore) CreatePatientPerson(ctx context.Context, patientID string, input CreatePatientPersonRequest, now time.Time) (PatientPerson, error) {
+	personID, err := idgen.New()
+	if err != nil {
+		return PatientPerson{}, err
+	}
+
+	row := s.db.QueryRowContext(ctx, `
+		insert into patient_people (
+			id,
+			patient_id,
+			name,
+			relationship,
+			status,
+			relationship_quality,
+			first_mentioned_at,
+			last_mentioned_at,
+			context,
+			notes,
+			updated_at
+		) values ($1, $2, $3, nullif($4, ''), $5, $6, $7, $7, nullif($8, ''), nullif($9, ''), now())
+		returning
+			id,
+			patient_id,
+			name,
+			coalesce(relationship, ''),
+			status,
+			relationship_quality,
+			safe_to_suggest_call,
+			first_mentioned_at,
+			coalesce(first_mentioned_call_run_id, ''),
+			last_mentioned_at,
+			coalesce(last_mentioned_call_run_id, ''),
+			coalesce(context, ''),
+			coalesce(notes, ''),
+			created_at,
+			updated_at
+	`, personID, strings.TrimSpace(patientID), strings.TrimSpace(input.Name), strings.TrimSpace(input.Relationship), strings.TrimSpace(input.Status), strings.TrimSpace(input.RelationshipQuality), now, strings.TrimSpace(input.Context), strings.TrimSpace(input.Notes))
+
+	person, scanErr := scanPatientPerson(row)
+	if scanErr != nil {
+		return PatientPerson{}, fmt.Errorf("create patient person: %w", scanErr)
+	}
+	return person, nil
+}
+
 func (s *PostgresStore) UpdatePatientPerson(ctx context.Context, patientID, personID string, input UpdatePatientPersonRequest) (PatientPerson, error) {
 	row := s.db.QueryRowContext(ctx, `
 		update patient_people
@@ -51,7 +96,8 @@ func (s *PostgresStore) UpdatePatientPerson(ctx context.Context, patientID, pers
 		    relationship = nullif($4, ''),
 		    status = $5,
 		    relationship_quality = $6,
-		    notes = nullif($7, ''),
+		    context = nullif($7, ''),
+		    notes = nullif($8, ''),
 		    updated_at = now()
 		where patient_id = $1
 		  and id = $2
@@ -71,7 +117,7 @@ func (s *PostgresStore) UpdatePatientPerson(ctx context.Context, patientID, pers
 			coalesce(notes, ''),
 			created_at,
 			updated_at
-	`, strings.TrimSpace(patientID), strings.TrimSpace(personID), strings.TrimSpace(input.Name), strings.TrimSpace(input.Relationship), strings.TrimSpace(input.Status), strings.TrimSpace(input.RelationshipQuality), strings.TrimSpace(input.Notes))
+	`, strings.TrimSpace(patientID), strings.TrimSpace(personID), strings.TrimSpace(input.Name), strings.TrimSpace(input.Relationship), strings.TrimSpace(input.Status), strings.TrimSpace(input.RelationshipQuality), strings.TrimSpace(input.Context), strings.TrimSpace(input.Notes))
 
 	person, err := scanPatientPerson(row)
 	if err != nil {
@@ -86,6 +132,118 @@ func (s *PostgresStore) UpdatePatientPerson(ctx context.Context, patientID, pers
 
 func (s *PostgresStore) ListMemoryBankEntries(ctx context.Context, patientID string) ([]MemoryBankEntry, error) {
 	return s.listMemoryBankEntries(ctx, patientID, 0)
+}
+
+func (s *PostgresStore) CreateMemoryBankEntry(ctx context.Context, patientID string, input CreateMemoryBankEntryRequest, now time.Time) (MemoryBankEntry, error) {
+	entryID, err := idgen.New()
+	if err != nil {
+		return MemoryBankEntry{}, err
+	}
+
+	occurredAt := now
+	if input.OccurredAt != nil && !input.OccurredAt.IsZero() {
+		occurredAt = input.OccurredAt.UTC()
+	}
+	anchorType := normalizeMemoryAnchorType(input.AnchorType)
+	personIDs := normalizeDistinctIDs(input.PersonIDs)
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return MemoryBankEntry{}, fmt.Errorf("begin create memory bank entry tx: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	if _, execErr := tx.ExecContext(ctx, `
+		insert into memory_bank_entries (
+			id,
+			patient_id,
+			source_call_run_id,
+			source_analysis_result_id,
+			created_by,
+			topic,
+			summary,
+			emotional_tone,
+			responded_well_to,
+			anchor_offered,
+			anchor_type,
+			anchor_accepted,
+			anchor_detail,
+			suggested_followup,
+			occurred_at,
+			updated_at
+		) values (
+			$1, $2, null, null, $3, $4, $5, nullif($6, ''), $7, $8, $9, $10, nullif($11, ''), nullif($12, ''), $13, now()
+		)
+	`, entryID, strings.TrimSpace(patientID), ReminderCreatedByAdmin, strings.TrimSpace(input.Topic), strings.TrimSpace(input.Summary), strings.TrimSpace(input.EmotionalTone), marshalStringList(input.RespondedWellTo), input.AnchorOffered, anchorType, input.AnchorAccepted, strings.TrimSpace(input.AnchorDetail), strings.TrimSpace(input.SuggestedFollowUp), occurredAt); execErr != nil {
+		return MemoryBankEntry{}, fmt.Errorf("create memory bank entry: %w", execErr)
+	}
+
+	if err = syncMemoryBankEntryPeopleTx(ctx, tx, strings.TrimSpace(patientID), entryID, personIDs); err != nil {
+		return MemoryBankEntry{}, err
+	}
+
+	if commitErr := tx.Commit(); commitErr != nil {
+		return MemoryBankEntry{}, fmt.Errorf("commit create memory bank entry tx: %w", commitErr)
+	}
+
+	return s.findMemoryBankEntry(ctx, strings.TrimSpace(patientID), entryID)
+}
+
+func (s *PostgresStore) UpdateMemoryBankEntry(ctx context.Context, patientID, entryID string, input UpdateMemoryBankEntryRequest, now time.Time) (MemoryBankEntry, error) {
+	occurredAt := now
+	if input.OccurredAt != nil && !input.OccurredAt.IsZero() {
+		occurredAt = input.OccurredAt.UTC()
+	}
+	anchorType := normalizeMemoryAnchorType(input.AnchorType)
+	personIDs := normalizeDistinctIDs(input.PersonIDs)
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return MemoryBankEntry{}, fmt.Errorf("begin update memory bank entry tx: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	var updatedID string
+	if scanErr := tx.QueryRowContext(ctx, `
+		update memory_bank_entries
+		set topic = $3,
+		    summary = $4,
+		    emotional_tone = nullif($5, ''),
+		    responded_well_to = $6,
+		    anchor_offered = $7,
+		    anchor_type = $8,
+		    anchor_accepted = $9,
+		    anchor_detail = nullif($10, ''),
+		    suggested_followup = nullif($11, ''),
+		    occurred_at = $12,
+		    updated_at = now()
+		where patient_id = $1
+		  and id = $2
+		returning id
+	`, strings.TrimSpace(patientID), strings.TrimSpace(entryID), strings.TrimSpace(input.Topic), strings.TrimSpace(input.Summary), strings.TrimSpace(input.EmotionalTone), marshalStringList(input.RespondedWellTo), input.AnchorOffered, anchorType, input.AnchorAccepted, strings.TrimSpace(input.AnchorDetail), strings.TrimSpace(input.SuggestedFollowUp), occurredAt).Scan(&updatedID); scanErr != nil {
+		if scanErr == sql.ErrNoRows {
+			return MemoryBankEntry{}, ErrMemoryBankEntryNotFound
+		}
+		return MemoryBankEntry{}, fmt.Errorf("update memory bank entry: %w", scanErr)
+	}
+
+	if err = syncMemoryBankEntryPeopleTx(ctx, tx, strings.TrimSpace(patientID), strings.TrimSpace(entryID), personIDs); err != nil {
+		return MemoryBankEntry{}, err
+	}
+
+	if commitErr := tx.Commit(); commitErr != nil {
+		return MemoryBankEntry{}, fmt.Errorf("commit update memory bank entry tx: %w", commitErr)
+	}
+
+	return s.findMemoryBankEntry(ctx, strings.TrimSpace(patientID), strings.TrimSpace(entryID))
 }
 
 func (s *PostgresStore) ListPatientReminders(ctx context.Context, patientID string) ([]Reminder, error) {
@@ -195,8 +353,9 @@ func (s *PostgresStore) listMemoryBankEntries(ctx context.Context, patientID str
 		select
 			id,
 			patient_id,
-			source_call_run_id,
-			source_analysis_result_id,
+			coalesce(source_call_run_id, ''),
+			coalesce(source_analysis_result_id, ''),
+			created_by,
 			topic,
 			summary,
 			coalesce(emotional_tone, ''),
@@ -319,6 +478,11 @@ func (s *PostgresStore) materializeAnalysisSideEffectsTx(ctx context.Context, tx
 
 func (s *PostgresStore) materializeCheckInTx(ctx context.Context, tx *sql.Tx, input SaveAnalysisResultInput, analysisID string) error {
 	checkIn := input.Result.CheckIn
+	people, err := s.upsertMentionedPeopleTx(ctx, tx, input.PatientID, input.CallRunID, input.GeneratedAt, checkIn.MentionedPeople)
+	if err != nil {
+		return err
+	}
+
 	for _, reminder := range checkIn.RemindersNoted {
 		title := strings.TrimSpace(reminder.Title)
 		detail := strings.TrimSpace(reminder.Detail)
@@ -338,6 +502,7 @@ func (s *PostgresStore) materializeCheckInTx(ctx context.Context, tx *sql.Tx, in
 			Status:                       ReminderStatusPending,
 			Title:                        chooseString(title, "Reminder"),
 			Detail:                       detail,
+			PersonID:                     matchMentionedPersonInText(title+" "+detail, people),
 			CaregiverFollowUpRecommended: false,
 			CreatedBy:                    ReminderCreatedByAnalysisWorker,
 			CreatedAt:                    input.GeneratedAt,
@@ -356,12 +521,21 @@ func (s *PostgresStore) materializeCheckInTx(ctx context.Context, tx *sql.Tx, in
 			Status:                       ReminderStatusDeclined,
 			Title:                        title,
 			Detail:                       "Declined during check-in. Caregiver follow-up recommended.",
+			PersonID:                     matchMentionedPersonInText(title, people),
 			CaregiverFollowUpRecommended: true,
 			CreatedBy:                    ReminderCreatedByAnalysisWorker,
 			CreatedAt:                    input.GeneratedAt,
 		}); err != nil {
 			return err
 		}
+	}
+
+	if err := s.updateRunningCheckInProfileTx(ctx, tx, input.PatientID, *checkIn, input.Result.NextCallRecommendation); err != nil {
+		return err
+	}
+
+	if err := s.insertCheckInMemoryBankEntryTx(ctx, tx, input, analysisID, people); err != nil {
+		return err
 	}
 
 	return nil
@@ -384,6 +558,7 @@ func (s *PostgresStore) materializeReminiscenceTx(ctx context.Context, tx *sql.T
 			patient_id,
 			source_call_run_id,
 			source_analysis_result_id,
+			created_by,
 			topic,
 			summary,
 			emotional_tone,
@@ -395,8 +570,8 @@ func (s *PostgresStore) materializeReminiscenceTx(ctx context.Context, tx *sql.T
 			suggested_followup,
 			occurred_at,
 			updated_at
-		) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14)
-	`, entryID, input.PatientID, input.CallRunID, analysisID, chooseString(strings.TrimSpace(reminiscence.Topic), "Untitled memory"), chooseString(strings.TrimSpace(reminiscence.Summary), strings.TrimSpace(input.Result.Summary)), nullableString(reminiscence.EmotionalTone), marshalStringList(reminiscence.RespondedWellTo), reminiscence.AnchorOffered, chooseString(strings.TrimSpace(reminiscence.AnchorType), AnchorTypeNone), reminiscence.AnchorAccepted, nullableString(reminiscence.AnchorDetail), nullableString(reminiscence.SuggestedFollowUp), input.GeneratedAt); err != nil {
+		) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15)
+	`, entryID, input.PatientID, input.CallRunID, analysisID, ReminderCreatedByAnalysisWorker, chooseString(strings.TrimSpace(reminiscence.Topic), "Untitled memory"), chooseString(strings.TrimSpace(reminiscence.Summary), strings.TrimSpace(input.Result.Summary)), nullableString(reminiscence.EmotionalTone), marshalStringList(reminiscence.RespondedWellTo), reminiscence.AnchorOffered, chooseString(strings.TrimSpace(reminiscence.AnchorType), AnchorTypeNone), reminiscence.AnchorAccepted, nullableString(reminiscence.AnchorDetail), nullableString(reminiscence.SuggestedFollowUp), input.GeneratedAt); err != nil {
 		return fmt.Errorf("insert memory bank entry: %w", err)
 	}
 
@@ -643,6 +818,94 @@ func (s *PostgresStore) updateRunningMemoryProfileTx(ctx context.Context, tx *sq
 	return nil
 }
 
+func (s *PostgresStore) updateRunningCheckInProfileTx(ctx context.Context, tx *sql.Tx, patientID string, checkIn CheckInAnalysis, nextCall *NextCallRecommendation) error {
+	patient, ok, err := s.getPatientTx(ctx, tx, patientID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrPatientNotFound
+	}
+
+	familyMembers := mergeFamilyMembers(patient.MemoryProfile.FamilyMembers, checkIn.MentionedPeople)
+	topicsToRevisit := append([]string{}, patient.MemoryProfile.TopicsToRevisit...)
+	for _, reminder := range checkIn.RemindersNoted {
+		topic := chooseString(strings.TrimSpace(reminder.Title), strings.TrimSpace(reminder.Detail))
+		if topic != "" {
+			topicsToRevisit = append(topicsToRevisit, topic)
+		}
+	}
+	if nextCall != nil && strings.TrimSpace(nextCall.Goal) != "" {
+		topicsToRevisit = append(topicsToRevisit, strings.TrimSpace(nextCall.Goal))
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		update patient_memory_profiles
+		set family_members = $2,
+		    topics_to_revisit = $3,
+		    updated_at = now()
+		where patient_id = $1
+	`, strings.TrimSpace(patientID), marshalJSON(familyMembers), marshalStringList(mergeStringLists(patient.MemoryProfile.TopicsToRevisit, topicsToRevisit))); err != nil {
+		return fmt.Errorf("update running check-in profile: %w", err)
+	}
+
+	return nil
+}
+
+func (s *PostgresStore) insertCheckInMemoryBankEntryTx(ctx context.Context, tx *sql.Tx, input SaveAnalysisResultInput, analysisID string, people []PatientPerson) error {
+	checkIn := input.Result.CheckIn
+	topic := deriveCheckInMemoryTopic(*checkIn, input.Result.NextCallRecommendation, people)
+	summary := chooseString(strings.TrimSpace(checkIn.CaregiverSummary), strings.TrimSpace(input.Result.Summary))
+	if topic == "" || summary == "" {
+		return nil
+	}
+
+	entryID, err := idgen.New()
+	if err != nil {
+		return err
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		insert into memory_bank_entries (
+			id,
+			patient_id,
+			source_call_run_id,
+			source_analysis_result_id,
+			created_by,
+			topic,
+			summary,
+			emotional_tone,
+			responded_well_to,
+			anchor_offered,
+			anchor_type,
+			anchor_accepted,
+			anchor_detail,
+			suggested_followup,
+			occurred_at,
+			updated_at
+		) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, false, $10, false, null, $11, $12, $12)
+	`, entryID, input.PatientID, input.CallRunID, analysisID, ReminderCreatedByAnalysisWorker, topic, summary, nullableString(checkIn.Mood), marshalStringList(deriveCheckInRespondedWellTo(*checkIn, people)), AnchorTypeNone, nullableString(deriveCheckInSuggestedFollowUp(*checkIn, input.Result.NextCallRecommendation)), input.GeneratedAt); err != nil {
+		return fmt.Errorf("insert check-in memory bank entry: %w", err)
+	}
+
+	for _, person := range people {
+		if strings.TrimSpace(person.ID) == "" {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `
+			insert into memory_bank_entry_people (
+				memory_bank_entry_id,
+				patient_person_id
+			) values ($1, $2)
+			on conflict (memory_bank_entry_id, patient_person_id) do nothing
+		`, entryID, person.ID); err != nil {
+			return fmt.Errorf("attach check-in memory bank person: %w", err)
+		}
+	}
+
+	return nil
+}
+
 func (s *PostgresStore) matchSafePersonForAnchorTx(ctx context.Context, tx *sql.Tx, patientID, anchorDetail string) (string, error) {
 	detail := strings.ToLower(strings.TrimSpace(anchorDetail))
 	if detail == "" {
@@ -682,6 +945,28 @@ func (s *PostgresStore) matchSafePersonForAnchorTx(ctx context.Context, tx *sql.
 		return "", nil
 	}
 	return matches[0], nil
+}
+
+func matchMentionedPersonInText(text string, people []PatientPerson) string {
+	normalizedText := strings.ToLower(strings.TrimSpace(text))
+	if normalizedText == "" {
+		return ""
+	}
+
+	matches := make([]string, 0, 1)
+	for _, person := range people {
+		name := strings.ToLower(strings.TrimSpace(person.Name))
+		if name == "" {
+			continue
+		}
+		if strings.Contains(normalizedText, name) {
+			matches = append(matches, person.ID)
+		}
+	}
+	if len(matches) != 1 {
+		return ""
+	}
+	return matches[0]
 }
 
 func insertPatientReminderTx(ctx context.Context, tx *sql.Tx, params createReminderParams) (string, error) {
@@ -735,7 +1020,7 @@ func scanMemoryBankEntry(row scanner) (MemoryBankEntry, error) {
 		entry           MemoryBankEntry
 		respondedWellTo []byte
 	)
-	if err := row.Scan(&entry.ID, &entry.PatientID, &entry.SourceCallRunID, &entry.SourceAnalysisResultID, &entry.Topic, &entry.Summary, &entry.EmotionalTone, &respondedWellTo, &entry.AnchorOffered, &entry.AnchorType, &entry.AnchorAccepted, &entry.AnchorDetail, &entry.SuggestedFollowUp, &entry.OccurredAt, &entry.CreatedAt, &entry.UpdatedAt); err != nil {
+	if err := row.Scan(&entry.ID, &entry.PatientID, &entry.SourceCallRunID, &entry.SourceAnalysisResultID, &entry.CreatedBy, &entry.Topic, &entry.Summary, &entry.EmotionalTone, &respondedWellTo, &entry.AnchorOffered, &entry.AnchorType, &entry.AnchorAccepted, &entry.AnchorDetail, &entry.SuggestedFollowUp, &entry.OccurredAt, &entry.CreatedAt, &entry.UpdatedAt); err != nil {
 		return MemoryBankEntry{}, err
 	}
 	entry.RespondedWellTo = parseStringList(respondedWellTo)
@@ -823,6 +1108,95 @@ func mergeStringLists(existing []string, incoming []string) []string {
 	return merged
 }
 
+func mergeFamilyMembers(existing []FamilyMember, mentioned []MentionedPerson) []FamilyMember {
+	seen := make(map[string]struct{}, len(existing))
+	merged := make([]FamilyMember, 0, len(existing)+len(mentioned))
+	for _, member := range existing {
+		normalizedName := normalizePersonName(member.Name)
+		if normalizedName == "" {
+			continue
+		}
+		seen[normalizedName] = struct{}{}
+		merged = append(merged, member)
+	}
+
+	for _, person := range mentioned {
+		normalizedName := normalizePersonName(person.Name)
+		if normalizedName == "" || !isLikelyPersonalRelationship(person.Relationship) {
+			continue
+		}
+		if _, ok := seen[normalizedName]; ok {
+			continue
+		}
+		seen[normalizedName] = struct{}{}
+		merged = append(merged, FamilyMember{
+			Name:     strings.TrimSpace(person.Name),
+			Relation: strings.TrimSpace(person.Relationship),
+			Notes:    strings.TrimSpace(person.Context),
+		})
+	}
+
+	return merged
+}
+
+func isLikelyPersonalRelationship(relationship string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(relationship))
+	if normalized == "" {
+		return false
+	}
+	for _, blocked := range []string{"historical figure", "politician", "celebrity", "fictional"} {
+		if strings.Contains(normalized, blocked) {
+			return false
+		}
+	}
+	return true
+}
+
+func deriveCheckInMemoryTopic(checkIn CheckInAnalysis, nextCall *NextCallRecommendation, people []PatientPerson) string {
+	if len(people) > 0 {
+		for _, reminder := range checkIn.RemindersNoted {
+			detail := strings.ToLower(strings.TrimSpace(reminder.Title + " " + reminder.Detail))
+			if strings.Contains(detail, strings.ToLower(strings.TrimSpace(people[0].Name))) {
+				return fmt.Sprintf("Reconnecting with %s", strings.TrimSpace(people[0].Name))
+			}
+		}
+		return fmt.Sprintf("Conversation about %s", strings.TrimSpace(people[0].Name))
+	}
+	if len(checkIn.RemindersNoted) > 0 {
+		return chooseString(strings.TrimSpace(checkIn.RemindersNoted[0].Title), "Check-in follow-up")
+	}
+	if nextCall != nil && strings.TrimSpace(nextCall.Goal) != "" {
+		return "Check-in follow-up"
+	}
+	return ""
+}
+
+func deriveCheckInSuggestedFollowUp(checkIn CheckInAnalysis, nextCall *NextCallRecommendation) string {
+	if nextCall != nil && strings.TrimSpace(nextCall.Goal) != "" {
+		return strings.TrimSpace(nextCall.Goal)
+	}
+	if len(checkIn.RemindersNoted) > 0 {
+		return chooseString(strings.TrimSpace(checkIn.RemindersNoted[0].Detail), strings.TrimSpace(checkIn.RemindersNoted[0].Title))
+	}
+	return ""
+}
+
+func deriveCheckInRespondedWellTo(checkIn CheckInAnalysis, people []PatientPerson) []string {
+	values := make([]string, 0, len(people)+len(checkIn.RemindersNoted))
+	for _, person := range people {
+		if strings.TrimSpace(person.Name) != "" {
+			values = append(values, strings.TrimSpace(person.Name))
+		}
+	}
+	for _, reminder := range checkIn.RemindersNoted {
+		topic := chooseString(strings.TrimSpace(reminder.Title), strings.TrimSpace(reminder.Detail))
+		if topic != "" {
+			values = append(values, topic)
+		}
+	}
+	return mergeStringLists(nil, values)
+}
+
 func anchorTypeToReminderKind(anchorType string) string {
 	switch strings.TrimSpace(anchorType) {
 	case AnchorTypeCall:
@@ -860,12 +1234,117 @@ func reminderTitleForAnchor(reminiscence ReminiscenceAnalysis, people []PatientP
 	}
 }
 
+func normalizeMemoryAnchorType(anchorType string) string {
+	normalized := strings.TrimSpace(anchorType)
+	if normalized == "" {
+		return AnchorTypeNone
+	}
+	return normalized
+}
+
+func normalizeDistinctIDs(ids []string) []string {
+	if len(ids) == 0 {
+		return nil
+	}
+	normalized := make([]string, 0, len(ids))
+	seen := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		trimmed := strings.TrimSpace(id)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		normalized = append(normalized, trimmed)
+	}
+	return normalized
+}
+
+func syncMemoryBankEntryPeopleTx(ctx context.Context, tx *sql.Tx, patientID, entryID string, personIDs []string) error {
+	if _, err := tx.ExecContext(ctx, `
+		delete from memory_bank_entry_people
+		where memory_bank_entry_id = $1
+	`, strings.TrimSpace(entryID)); err != nil {
+		return fmt.Errorf("clear memory bank entry people: %w", err)
+	}
+
+	if len(personIDs) == 0 {
+		return nil
+	}
+
+	peopleQuery, args := buildINQueryWithStart(`
+		select id
+		from patient_people
+		where patient_id = $1
+		  and id in (`, `)
+	`, personIDs, 2)
+	rows, err := tx.QueryContext(ctx, peopleQuery, append([]any{strings.TrimSpace(patientID)}, args...)...)
+	if err != nil {
+		return fmt.Errorf("load patient people for memory bank entry: %w", err)
+	}
+	defer rows.Close()
+
+	found := make(map[string]struct{}, len(personIDs))
+	for rows.Next() {
+		var id string
+		if scanErr := rows.Scan(&id); scanErr != nil {
+			return fmt.Errorf("scan patient person id for memory bank entry: %w", scanErr)
+		}
+		found[id] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate patient people for memory bank entry: %w", err)
+	}
+	if len(found) != len(personIDs) {
+		return newValidationError("personIds must all belong to this patient")
+	}
+
+	for _, personID := range personIDs {
+		if _, err := tx.ExecContext(ctx, `
+			insert into memory_bank_entry_people (
+				memory_bank_entry_id,
+				patient_person_id
+			) values ($1, $2)
+			on conflict (memory_bank_entry_id, patient_person_id) do nothing
+		`, strings.TrimSpace(entryID), personID); err != nil {
+			return fmt.Errorf("attach memory bank entry person: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (s *PostgresStore) findMemoryBankEntry(ctx context.Context, patientID, entryID string) (MemoryBankEntry, error) {
+	entries, err := s.listMemoryBankEntries(ctx, patientID, 0)
+	if err != nil {
+		return MemoryBankEntry{}, err
+	}
+	for _, entry := range entries {
+		if strings.TrimSpace(entry.ID) == strings.TrimSpace(entryID) {
+			return entry, nil
+		}
+	}
+	return MemoryBankEntry{}, ErrMemoryBankEntryNotFound
+}
+
 func buildINQuery(prefix string, suffix string, ids []string) (string, []any) {
 	args := make([]any, 0, len(ids))
 	placeholders := make([]string, 0, len(ids))
 	for index, id := range ids {
 		args = append(args, id)
 		placeholders = append(placeholders, fmt.Sprintf("$%d", index+1))
+	}
+	return prefix + strings.Join(placeholders, ", ") + suffix, args
+}
+
+func buildINQueryWithStart(prefix string, suffix string, ids []string, startAt int) (string, []any) {
+	args := make([]any, 0, len(ids))
+	placeholders := make([]string, 0, len(ids))
+	for index, id := range ids {
+		args = append(args, id)
+		placeholders = append(placeholders, fmt.Sprintf("$%d", startAt+index))
 	}
 	return prefix + strings.Join(placeholders, ", ") + suffix, args
 }

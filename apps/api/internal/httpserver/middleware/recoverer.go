@@ -3,7 +3,7 @@ package middleware
 import (
 	"net/http"
 
-	"nova-echoes/api/internal/httpserver/respond"
+	"tether/api/internal/httpserver/respond"
 )
 
 func Recoverer() Middleware {

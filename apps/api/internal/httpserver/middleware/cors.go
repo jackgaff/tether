@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	"nova-echoes/api/internal/config"
+	"tether/api/internal/config"
 )
 
 func CORS(cfg config.Config) Middleware {

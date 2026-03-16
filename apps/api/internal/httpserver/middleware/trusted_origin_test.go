@@ -5,8 +5,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"nova-echoes/api/internal/config"
-	"nova-echoes/api/internal/httpserver/middleware"
+	"tether/api/internal/config"
+	"tether/api/internal/httpserver/middleware"
 )
 
 func TestRequireTrustedOriginAllowsSafeMethods(t *testing.T) {

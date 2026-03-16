@@ -98,6 +98,7 @@ export interface Patient {
   phoneE164?: string;
   timezone: string;
   notes?: string;
+  profilePhotoDataUrl?: string;
   callingState: "active" | "paused";
   pauseReason?: string;
   pausedAt?: string;
@@ -260,6 +261,7 @@ export interface CheckInAnalysis {
   activityDetail?: string;
   socialContact: "yes" | "no" | "unknown";
   socialContactDetail?: string;
+  mentionedPeople?: MentionedPerson[];
   remindersNoted: ReminderNote[];
   reminderDeclined: boolean;
   reminderDeclinedTopic?: string;
@@ -420,8 +422,8 @@ export interface PatientPerson {
 export interface MemoryBankEntry {
   id: string;
   patientId: string;
-  sourceCallRunId: string;
-  sourceAnalysisResultId: string;
+  sourceCallRunId?: string;
+  sourceAnalysisResultId?: string;
   topic: string;
   summary: string;
   emotionalTone?: string;
@@ -431,6 +433,7 @@ export interface MemoryBankEntry {
   anchorAccepted: boolean;
   anchorDetail?: string;
   suggestedFollowUp?: string;
+  createdBy?: "analysis_worker" | "admin";
   occurredAt: string;
   people: PatientPerson[];
   createdAt: string;
@@ -482,12 +485,36 @@ export interface PatientInput {
   phoneE164: string;
   timezone: string;
   notes: string;
+  profilePhotoDataUrl?: string;
   routineAnchors: string[];
   favoriteTopics: string[];
   calmingCues: string[];
   topicsToAvoid: string[];
   memoryProfile?: MemoryProfile;
   conversationGuidance?: ConversationGuidance;
+}
+
+export interface PatientPersonInput {
+  name: string;
+  relationship: string;
+  status: string;
+  relationshipQuality: string;
+  context?: string;
+  notes: string;
+}
+
+export interface MemoryBankEntryInput {
+  topic: string;
+  summary: string;
+  emotionalTone?: string;
+  respondedWellTo: string[];
+  anchorOffered: boolean;
+  anchorType: string;
+  anchorAccepted: boolean;
+  anchorDetail?: string;
+  suggestedFollowUp?: string;
+  occurredAt: string;
+  personIds: string[];
 }
 
 export interface ScreeningScheduleInput {
