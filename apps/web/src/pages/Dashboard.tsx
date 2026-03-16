@@ -4,10 +4,8 @@ import {
   CalendarDays,
   Sparkles,
   ChevronRight,
-  Pencil,
-  BookOpen,
-  Heart,
   Star,
+  Users,
   AlertTriangle,
 } from "lucide-react";
 import type { Page } from "../App";
@@ -39,9 +37,14 @@ function formatDuration(start?: string, end?: string) {
 
 function callTypeLabel(type: string) {
   return (
-    { orientation: "Orientation", reminder: "Reminder", wellbeing: "Wellbeing", reminiscence: "Reminiscence" }[
-      type
-    ] ?? type
+    {
+      screening: "Screening",
+      check_in: "Check-In",
+      reminiscence: "Reminiscence",
+      orientation: "Orientation",
+      reminder: "Reminder",
+      wellbeing: "Wellbeing",
+    }[type] ?? type
   );
 }
 
@@ -303,53 +306,52 @@ export function Dashboard({ onNavigate, dashboard, isLoading, error, onRefresh }
             )}
           </div>
 
-          {/* Call context */}
+          {/* Memory profile */}
           {patient && (
             <div className="bg-white border border-gray-200 rounded-2xl p-5">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-base font-semibold text-gray-900">Call Context</span>
-                <button
-                  onClick={() => onNavigate("patients")}
-                  className="flex items-center gap-1 text-sm text-gray-400 hover:text-gray-700 transition-colors"
-                >
-                  <Pencil size={12} strokeWidth={2} />
-                  Edit
-                </button>
-              </div>
+              <span className="text-base font-semibold text-gray-900 block mb-1">Memory Profile</span>
               <p className="text-sm text-gray-400 mb-4">
-                Topics and anchors used in {patient.preferredName || patient.displayName}'s calls
+                Used to personalise reminiscence calls for {patient.preferredName || patient.displayName}
               </p>
               <div className="space-y-4">
-                {[
-                  { label: "Routine", Icon: BookOpen, items: patient.routineAnchors },
-                  { label: "Favourite topics", Icon: Star, items: patient.favoriteTopics },
-                  { label: "Calming cues", Icon: Heart, items: patient.calmingCues },
-                ]
-                  .filter(({ items }) => items.length > 0)
-                  .map(({ label, Icon, items }) => (
-                    <div key={label}>
-                      <div className="flex items-center gap-1.5 mb-2">
-                        <Icon size={12} className="text-gray-400" strokeWidth={1.75} />
-                        <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          {label}
-                        </span>
-                      </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {items.map((a) => (
-                          <span
-                            key={a}
-                            className="text-xs bg-gray-50 border border-gray-100 rounded px-2 py-1 text-gray-600"
-                          >
-                            {a}
-                          </span>
-                        ))}
-                      </div>
+                {patient.memoryProfile.likes.length > 0 && (
+                  <div>
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <Star size={12} className="text-gray-400" strokeWidth={1.75} />
+                      <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Interests</span>
                     </div>
-                  ))}
-                {patient.routineAnchors.length === 0 &&
-                  patient.favoriteTopics.length === 0 &&
-                  patient.calmingCues.length === 0 && (
-                    <p className="text-sm text-gray-400 italic">No context configured yet.</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {patient.memoryProfile.likes.map((t) => (
+                        <span key={t} className="text-xs bg-gray-50 border border-gray-100 rounded px-2 py-1 text-gray-600">{t}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {patient.memoryProfile.familyMembers.length > 0 && (
+                  <div>
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <Users size={12} className="text-gray-400" strokeWidth={1.75} />
+                      <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Family & Friends</span>
+                    </div>
+                    <div className="space-y-1">
+                      {patient.memoryProfile.familyMembers.map((m) => (
+                        <p key={m.name} className="text-sm text-gray-600">
+                          <span className="font-medium">{m.name}</span>
+                          <span className="text-gray-400"> · {m.relation}</span>
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {patient.memoryProfile.reminiscenceNotes && (
+                  <p className="text-sm text-gray-500 italic leading-relaxed">
+                    "{patient.memoryProfile.reminiscenceNotes}"
+                  </p>
+                )}
+                {patient.memoryProfile.likes.length === 0 &&
+                  patient.memoryProfile.familyMembers.length === 0 &&
+                  !patient.memoryProfile.reminiscenceNotes && (
+                    <p className="text-sm text-gray-400 italic">No memory profile set up yet.</p>
                   )}
               </div>
             </div>

@@ -2,17 +2,15 @@ import { useState, useEffect, useCallback } from "react";
 import { Radio, UserPlus, LogOut } from "lucide-react";
 import { Sidebar } from "./components/Sidebar";
 import { Dashboard } from "./pages/Dashboard";
-import { Patients } from "./pages/Patients";
 import { ScheduleCall } from "./pages/ScheduleCall";
 import { RecentCalls } from "./pages/RecentCalls";
-import { ApiSurface } from "./pages/ApiSurface";
 import { CreatePatient } from "./pages/CreatePatient";
-import { getAdminSession, loginAdmin, getDashboard, listPatients } from "./api/admin";
+import { getAdminSession, loginAdmin, getDashboard, listPatients, listCaregivers } from "./api/admin";
 import { useStoredString } from "./app/storage";
 import { STORAGE_KEYS } from "./app/constants";
 import type { AdminSession, DashboardSnapshot, Patient } from "./api/contracts";
 
-export type Page = "dashboard" | "patients" | "schedule-call" | "recent-calls" | "api-surface";
+export type Page = "dashboard" | "schedule-call" | "recent-calls";
 
 // Screens outside the main console
 type PreConsoleScreen = "picker" | "create-patient";
@@ -57,6 +55,14 @@ export default function App() {
       .catch(() => setPatientList([]))
       .finally(() => setPatientListLoading(false));
   }, [session]);
+
+  // Ensure caregiverId is always populated — fetch first caregiver if not yet stored
+  useEffect(() => {
+    if (!session || caregiverId) return;
+    listCaregivers()
+      .then((cs) => { if (cs.length > 0) setCaregiverId(cs[0].id); })
+      .catch(() => {});
+  }, [session, caregiverId]);
 
   const fetchDashboard = useCallback(async (pid: string) => {
     setIsDashboardLoading(true);
@@ -240,13 +246,6 @@ export default function App() {
             onRefresh={() => fetchDashboard(patientId)}
           />
         );
-      case "patients":
-        return (
-          <Patients
-            patient={dashboard?.patient ?? null}
-            onScheduleCall={() => setCurrentPage("schedule-call")}
-          />
-        );
       case "schedule-call":
         return (
           <ScheduleCall
@@ -265,8 +264,6 @@ export default function App() {
             latestAnalysis={dashboard?.latestAnalysis}
           />
         );
-      case "api-surface":
-        return <ApiSurface />;
     }
   }
 

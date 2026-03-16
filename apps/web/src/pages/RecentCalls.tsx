@@ -104,7 +104,7 @@ export function RecentCalls({ recentCalls, latestAnalysis }: Props) {
     const escalation = result ? escalationConfig[result.escalationLevel] : null;
 
     return (
-      <div className="p-8 max-w-3xl">
+      <div className="p-8 max-w-3xl mx-auto">
         <button
           onClick={closeCall}
           className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-700 transition-colors mb-6"
