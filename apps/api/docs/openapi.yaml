@@ -375,6 +375,91 @@ paths:
           $ref: "#/components/responses/NotFoundError"
         "409":
           $ref: "#/components/responses/ConflictError"
+  /api/v1/admin/patients/{id}/people:
+    get:
+      operationId: listPatientPeople
+      summary: List the verified and unverified people log for a patient
+      security:
+        - AdminSessionAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PatientIdPath"
+      responses:
+        "200":
+          description: Patient people returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PatientPersonListResponse"
+        "401":
+          $ref: "#/components/responses/UnauthorizedSessionError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+  /api/v1/admin/patients/{id}/people/{personId}:
+    put:
+      operationId: updatePatientPerson
+      summary: Update a logged person and verify whether they are safe to suggest for call anchors
+      security:
+        - AdminSessionAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PatientIdPath"
+        - $ref: "#/components/parameters/PatientPersonIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdatePatientPersonRequest"
+      responses:
+        "200":
+          description: Patient person updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PatientPersonResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedSessionError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+  /api/v1/admin/patients/{id}/memory-bank:
+    get:
+      operationId: listPatientMemoryBankEntries
+      summary: List reminiscence memory-bank entries for a patient
+      security:
+        - AdminSessionAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PatientIdPath"
+      responses:
+        "200":
+          description: Memory-bank entries returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoryBankEntryListResponse"
+        "401":
+          $ref: "#/components/responses/UnauthorizedSessionError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+  /api/v1/admin/patients/{id}/reminders:
+    get:
+      operationId: listPatientReminders
+      summary: List reminder and anchor tasks materialized from call analysis
+      security:
+        - AdminSessionAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PatientIdPath"
+      responses:
+        "200":
+          description: Reminders returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReminderListResponse"
+        "401":
+          $ref: "#/components/responses/UnauthorizedSessionError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
   /api/v1/admin/patients/{id}/screening-schedule:
     get:
       operationId: getPatientScreeningSchedule
@@ -513,7 +598,7 @@ paths:
   /api/v1/admin/call-templates:
     get:
       operationId: listCallTemplates
-      summary: List active and inactive call templates
+      summary: List active call templates
       security:
         - AdminSessionAuth: []
       responses:
@@ -733,6 +818,13 @@ components:
       schema:
         type: string
       description: Call run identifier.
+    PatientPersonIdPath:
+      in: path
+      name: personId
+      required: true
+      schema:
+        type: string
+      description: Patient person identifier.
   securitySchemes:
     ApiKeyAuth:
       type: apiKey
@@ -1375,10 +1467,35 @@ components:
             $ref: "#/components/schemas/LifeEvent"
         reminiscenceNotes:
           type: string
+        significantPlaces:
+          type: array
+          items:
+            type: string
+        lifeChapters:
+          type: array
+          items:
+            type: string
+        favoriteMusic:
+          type: array
+          items:
+            type: string
+        favoriteShowsFilms:
+          type: array
+          items:
+            type: string
+        topicsToRevisit:
+          type: array
+          items:
+            type: string
       required:
         - likes
         - familyMembers
         - lifeEvents
+        - significantPlaces
+        - lifeChapters
+        - favoriteMusic
+        - favoriteShowsFilms
+        - topicsToRevisit
     ConversationGuidance:
       type: object
       properties:
@@ -1853,7 +1970,10 @@ components:
         callTemplateId:
           type: string
         callType:
-          $ref: "#/components/schemas/CallTypeValue"
+          type: string
+          enum:
+            - check_in
+            - reminiscence
         channel:
           type: string
           enum:
@@ -1988,63 +2108,444 @@ components:
         - screeningItemsAdministered
         - screeningCompletionStatus
         - screeningFlags
+    ReminderNote:
+      type: object
+      properties:
+        title:
+          type: string
+        detail:
+          type: string
+      required:
+        - title
+    OrientationStatusValue:
+      type: string
+      enum:
+        - oriented
+        - mildly_confused
+        - disoriented
+    CheckInCaptureStatusValue:
+      type: string
+      enum:
+        - reported
+        - uncertain
+        - not_recalled
+    SocialContactValue:
+      type: string
+      enum:
+        - yes
+        - no
+    CheckInMoodValue:
+      type: string
+      enum:
+        - calm
+        - withdrawn
+        - distressed
+        - elevated
+    SleepStatusValue:
+      type: string
+      enum:
+        - good
+        - poor
+        - reversed
+    AnchorTypeValue:
+      type: string
+      enum:
+        - call
+        - music
+        - show_film
+        - journal
+        - none
+    PersonStatusValue:
+      type: string
+      enum:
+        - confirmed_living
+        - unknown
+        - deceased
+    RelationshipQualityValue:
+      type: string
+      enum:
+        - close_active
+        - unclear
+        - estranged
+        - unknown
+    ReminderKindValue:
+      type: string
+      enum:
+        - call_person
+        - music
+        - show_film
+        - journal
+        - appointment
+        - general
+    ReminderStatusValue:
+      type: string
+      enum:
+        - pending
+        - completed
+        - declined
+        - cancelled
+    ReminderCreatedByValue:
+      type: string
+      enum:
+        - analysis_worker
+        - admin
     CheckInAnalysis:
       type: object
       properties:
-        reportedDayOverview:
+        orientationStatus:
+          $ref: "#/components/schemas/OrientationStatusValue"
+        orientationNotes:
           type: string
-        foodAndHydration:
+        mealsStatus:
+          $ref: "#/components/schemas/CheckInCaptureStatusValue"
+        mealsDetail:
           type: string
-        medicationMentions:
+        fluidsStatus:
+          $ref: "#/components/schemas/CheckInCaptureStatusValue"
+        fluidsDetail:
+          type: string
+        activityDetail:
+          type: string
+        socialContact:
+          $ref: "#/components/schemas/SocialContactValue"
+        socialContactDetail:
+          type: string
+        remindersNoted:
           type: array
           items:
-            type: string
-        moodSignals:
-          type: array
-          items:
-            type: string
-        routineAdherence:
-          type: string
-        socialContactMentions:
-          type: array
-          items:
-            type: string
-        followUpRequestDetected:
+            $ref: "#/components/schemas/ReminderNote"
+        reminderDeclined:
           type: boolean
+        reminderDeclinedTopic:
+          type: string
+        mood:
+          $ref: "#/components/schemas/CheckInMoodValue"
+        moodNotes:
+          type: string
+        sleep:
+          $ref: "#/components/schemas/SleepStatusValue"
+        sleepNotes:
+          type: string
+        memoryFlags:
+          type: array
+          items:
+            type: string
+        deliriumWatch:
+          type: boolean
+        deliriumWatchNotes:
+          type: string
+        deliriumPotentialTriggers:
+          type: array
+          items:
+            type: string
+        caregiverSummary:
+          type: string
       required:
-        - medicationMentions
-        - moodSignals
-        - socialContactMentions
-        - followUpRequestDetected
+        - orientationStatus
+        - mealsStatus
+        - fluidsStatus
+        - socialContact
+        - remindersNoted
+        - reminderDeclined
+        - mood
+        - sleep
+        - memoryFlags
+        - deliriumWatch
+        - deliriumPotentialTriggers
+    MentionedPerson:
+      type: object
+      properties:
+        name:
+          type: string
+        relationship:
+          type: string
+        context:
+          type: string
+      required:
+        - name
     ReminiscenceAnalysis:
       type: object
       properties:
-        topicsDiscussed:
+        topic:
+          type: string
+        mentionedPeople:
+          type: array
+          items:
+            $ref: "#/components/schemas/MentionedPerson"
+        mentionedPlaces:
           type: array
           items:
             type: string
-        peopleMentioned:
+        mentionedMusic:
           type: array
           items:
             type: string
-        positiveEngagementSignals:
+        mentionedShowsFilms:
           type: array
           items:
             type: string
-        distressOrTriggerSignals:
+        lifeChapters:
           type: array
           items:
             type: string
-        futureReminiscenceCandidates:
+        summary:
+          type: string
+        emotionalTone:
+          type: string
+        respondedWellTo:
           type: array
           items:
             type: string
+        anchorOffered:
+          type: boolean
+        anchorType:
+          $ref: "#/components/schemas/AnchorTypeValue"
+        anchorAccepted:
+          type: boolean
+        anchorDetail:
+          type: string
+        suggestedFollowUp:
+          type: string
+        caregiverSummary:
+          type: string
       required:
-        - topicsDiscussed
-        - peopleMentioned
-        - positiveEngagementSignals
-        - distressOrTriggerSignals
-        - futureReminiscenceCandidates
+        - mentionedPeople
+        - mentionedPlaces
+        - mentionedMusic
+        - mentionedShowsFilms
+        - lifeChapters
+        - respondedWellTo
+        - anchorOffered
+        - anchorAccepted
+    PatientPerson:
+      type: object
+      properties:
+        id:
+          type: string
+        patientId:
+          type: string
+        name:
+          type: string
+        relationship:
+          type: string
+        status:
+          $ref: "#/components/schemas/PersonStatusValue"
+        relationshipQuality:
+          $ref: "#/components/schemas/RelationshipQualityValue"
+        safeToSuggestCall:
+          type: boolean
+        firstMentionedAt:
+          type: string
+          format: date-time
+        firstMentionedCallRunId:
+          type: string
+        lastMentionedAt:
+          type: string
+          format: date-time
+        lastMentionedCallRunId:
+          type: string
+        context:
+          type: string
+        notes:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - patientId
+        - name
+        - status
+        - relationshipQuality
+        - safeToSuggestCall
+        - firstMentionedAt
+        - lastMentionedAt
+        - createdAt
+        - updatedAt
+    PatientPersonResponse:
+      type: object
+      properties:
+        data:
+          $ref: "#/components/schemas/PatientPerson"
+      required:
+        - data
+    PatientPersonListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/PatientPerson"
+        meta:
+          type: object
+          properties:
+            count:
+              type: integer
+          required:
+            - count
+      required:
+        - data
+        - meta
+    UpdatePatientPersonRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+        relationship:
+          type: string
+        status:
+          $ref: "#/components/schemas/PersonStatusValue"
+        relationshipQuality:
+          $ref: "#/components/schemas/RelationshipQualityValue"
+        notes:
+          type: string
+      required:
+        - name
+        - status
+        - relationshipQuality
+    MemoryBankEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        patientId:
+          type: string
+        sourceCallRunId:
+          type: string
+        sourceAnalysisResultId:
+          type: string
+        topic:
+          type: string
+        summary:
+          type: string
+        emotionalTone:
+          type: string
+        respondedWellTo:
+          type: array
+          items:
+            type: string
+        anchorOffered:
+          type: boolean
+        anchorType:
+          $ref: "#/components/schemas/AnchorTypeValue"
+        anchorAccepted:
+          type: boolean
+        anchorDetail:
+          type: string
+        suggestedFollowUp:
+          type: string
+        occurredAt:
+          type: string
+          format: date-time
+        people:
+          type: array
+          items:
+            $ref: "#/components/schemas/PatientPerson"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - patientId
+        - sourceCallRunId
+        - sourceAnalysisResultId
+        - topic
+        - summary
+        - respondedWellTo
+        - anchorOffered
+        - anchorType
+        - anchorAccepted
+        - occurredAt
+        - people
+        - createdAt
+        - updatedAt
+    MemoryBankEntryListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/MemoryBankEntry"
+        meta:
+          type: object
+          properties:
+            count:
+              type: integer
+          required:
+            - count
+      required:
+        - data
+        - meta
+    Reminder:
+      type: object
+      properties:
+        id:
+          type: string
+        patientId:
+          type: string
+        sourceCallRunId:
+          type: string
+        sourceAnalysisResultId:
+          type: string
+        kind:
+          $ref: "#/components/schemas/ReminderKindValue"
+        status:
+          $ref: "#/components/schemas/ReminderStatusValue"
+        title:
+          type: string
+        detail:
+          type: string
+        personId:
+          type: string
+        person:
+          $ref: "#/components/schemas/PatientPerson"
+        caregiverFollowUpRecommended:
+          type: boolean
+        suggestedFor:
+          type: string
+          format: date-time
+        createdBy:
+          $ref: "#/components/schemas/ReminderCreatedByValue"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - patientId
+        - kind
+        - status
+        - title
+        - caregiverFollowUpRecommended
+        - createdBy
+        - createdAt
+        - updatedAt
+    ReminderListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Reminder"
+        meta:
+          type: object
+          properties:
+            count:
+              type: integer
+          required:
+            - count
+      required:
+        - data
+        - meta
     AnalysisPayload:
       type: object
       properties:

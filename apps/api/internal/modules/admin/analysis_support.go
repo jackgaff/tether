@@ -60,9 +60,40 @@ func validateAnalysisPayload(callType string, payload AnalysisPayload) error {
 		if payload.CheckIn == nil {
 			return newValidationError("analysis result checkIn payload is required for check-in calls")
 		}
+		if !contains(validOrientationStatuses(), payload.CheckIn.OrientationStatus) {
+			return newValidationError("analysis result checkIn.orientationStatus is invalid")
+		}
+		if !contains(validCheckInCaptureStatuses(), payload.CheckIn.MealsStatus) {
+			return newValidationError("analysis result checkIn.mealsStatus is invalid")
+		}
+		if !contains(validCheckInCaptureStatuses(), payload.CheckIn.FluidsStatus) {
+			return newValidationError("analysis result checkIn.fluidsStatus is invalid")
+		}
+		if !contains(validSocialContactStatuses(), payload.CheckIn.SocialContact) {
+			return newValidationError("analysis result checkIn.socialContact is invalid")
+		}
+		if !contains(validCheckInMoods(), payload.CheckIn.Mood) {
+			return newValidationError("analysis result checkIn.mood is invalid")
+		}
+		if !contains(validSleepStatuses(), payload.CheckIn.Sleep) {
+			return newValidationError("analysis result checkIn.sleep is invalid")
+		}
+		for _, reminder := range payload.CheckIn.RemindersNoted {
+			if strings.TrimSpace(reminder.Title) == "" && strings.TrimSpace(reminder.Detail) == "" {
+				return newValidationError("analysis result checkIn.remindersNoted entries must include a title or detail")
+			}
+		}
 	case CallTypeReminiscence:
 		if payload.Reminiscence == nil {
 			return newValidationError("analysis result reminiscence payload is required for reminiscence calls")
+		}
+		if payload.Reminiscence.AnchorType != "" && !contains(validAnchorTypes(), payload.Reminiscence.AnchorType) {
+			return newValidationError("analysis result reminiscence.anchorType is invalid")
+		}
+		for _, person := range payload.Reminiscence.MentionedPeople {
+			if strings.TrimSpace(person.Name) == "" {
+				return newValidationError("analysis result reminiscence.mentionedPeople.name is required")
+			}
 		}
 	default:
 		return newValidationError("analysis result callType is invalid")
@@ -80,6 +111,12 @@ func summarizeAnalysisForDashboard(payload AnalysisPayload) string {
 }
 
 func summarizeAnalysisForCaregiver(payload AnalysisPayload) string {
+	if payload.CheckIn != nil && strings.TrimSpace(payload.CheckIn.CaregiverSummary) != "" {
+		return strings.TrimSpace(payload.CheckIn.CaregiverSummary)
+	}
+	if payload.Reminiscence != nil && strings.TrimSpace(payload.Reminiscence.CaregiverSummary) != "" {
+		return strings.TrimSpace(payload.Reminiscence.CaregiverSummary)
+	}
 	if strings.TrimSpace(payload.CaregiverReviewReason) != "" {
 		return strings.TrimSpace(payload.CaregiverReviewReason)
 	}
@@ -125,7 +162,10 @@ func hydrateLegacyRiskFlags(flags []RiskFlag) {
 
 func deriveLegacyPatientState(payload AnalysisPayload) LegacyPatientState {
 	orientation := "unclear"
-	if hasLegacyKeyword(payload, "orientation", "confus", "repeat") {
+	if payload.CheckIn != nil && contains([]string{OrientationStatusMildlyConfused, OrientationStatusDisoriented}, payload.CheckIn.OrientationStatus) {
+		orientation = "mixed"
+	}
+	if orientation == "unclear" && hasLegacyKeyword(payload, "orientation", "confus", "repeat") {
 		orientation = "mixed"
 	}
 	if payload.Screening != nil && payload.Screening.ScreeningCompletionStatus == ScreeningCompletionComplete && orientation == "unclear" {
@@ -136,13 +176,13 @@ func deriveLegacyPatientState(payload AnalysisPayload) LegacyPatientState {
 	switch {
 	case payload.EscalationLevel == EscalationCaregiverNow || payload.EscalationLevel == EscalationClinicalReview:
 		mood = "distressed"
-	case payload.Reminiscence != nil && len(payload.Reminiscence.DistressOrTriggerSignals) > 0:
+	case payload.CheckIn != nil && payload.CheckIn.Mood == CheckInMoodDistressed:
 		mood = "distressed"
-	case payload.Reminiscence != nil && len(payload.Reminiscence.PositiveEngagementSignals) > 0:
+	case payload.Reminiscence != nil && containsAnySubstring(payload.Reminiscence.EmotionalTone, "joy", "warm", "animated", "tender", "reflective"):
 		mood = "positive"
-	case payload.CheckIn != nil && hasAnyMoodKeyword(payload.CheckIn.MoodSignals, "anxious", "worried", "sad", "upset"):
+	case payload.CheckIn != nil && payload.CheckIn.Mood == CheckInMoodWithdrawn:
 		mood = "anxious"
-	case payload.CheckIn != nil && hasAnyMoodKeyword(payload.CheckIn.MoodSignals, "good", "calm", "happy", "positive", "steady"):
+	case payload.CheckIn != nil && payload.CheckIn.Mood == CheckInMoodCalm:
 		mood = "positive"
 	case strings.TrimSpace(payload.Summary) == "":
 		mood = "unclear"
@@ -150,9 +190,9 @@ func deriveLegacyPatientState(payload AnalysisPayload) LegacyPatientState {
 
 	engagement := "medium"
 	switch {
-	case payload.Reminiscence != nil && len(payload.Reminiscence.PositiveEngagementSignals) > 0:
+	case payload.Reminiscence != nil && len(payload.Reminiscence.RespondedWellTo) > 0:
 		engagement = "high"
-	case payload.CheckIn != nil && payload.CheckIn.FollowUpRequestDetected:
+	case payload.CheckIn != nil && (len(payload.CheckIn.RemindersNoted) > 0 || payload.FollowUpIntent.RequestedByPatient):
 		engagement = "high"
 	case strings.TrimSpace(payload.Summary) == "" && len(payload.SalientEvidence) == 0:
 		engagement = "low"
@@ -182,15 +222,6 @@ func hasLegacyKeyword(payload AnalysisPayload, keywords ...string) bool {
 	}
 	if containsAnySubstring(payload.Summary, keywords...) || containsAnySubstring(payload.CaregiverReviewReason, keywords...) {
 		return true
-	}
-	return false
-}
-
-func hasAnyMoodKeyword(values []string, keywords ...string) bool {
-	for _, value := range values {
-		if containsAnySubstring(value, keywords...) {
-			return true
-		}
 	}
 	return false
 }

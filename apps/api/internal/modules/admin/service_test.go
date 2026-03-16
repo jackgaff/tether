@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 type fakeServiceStore struct {
 	patient            Patient
 	patientFound       bool
+	promptContext      CallPromptContext
 	consent            ConsentState
 	consentFound       bool
 	template           CallTemplate
@@ -30,6 +32,13 @@ type fakeServiceStore struct {
 
 func (f *fakeServiceStore) GetPatient(_ context.Context, _ string) (Patient, bool, error) {
 	return f.patient, f.patientFound, nil
+}
+
+func (f *fakeServiceStore) GetCallPromptContext(_ context.Context, _ string) (CallPromptContext, error) {
+	if f.promptContext.Patient.ID == "" {
+		return CallPromptContext{Patient: f.patient}, nil
+	}
+	return f.promptContext, nil
 }
 
 func (f *fakeServiceStore) GetConsentState(_ context.Context, _ string) (ConsentState, bool, error) {
@@ -89,6 +98,15 @@ func (failingVoiceCreator) CreateSession(_ context.Context, _ voice.CreateSessio
 	return voice.SessionDescriptor{}, errors.New("bootstrap failed")
 }
 
+type capturingVoiceCreator struct {
+	requests []voice.CreateSessionRequest
+}
+
+func (c *capturingVoiceCreator) CreateSession(_ context.Context, input voice.CreateSessionRequest) (voice.SessionDescriptor, error) {
+	c.requests = append(c.requests, input)
+	return voice.SessionDescriptor{ID: "voice-session-1"}, nil
+}
+
 func TestServiceCreateCallMarksBootstrapFailure(t *testing.T) {
 	t.Parallel()
 
@@ -106,7 +124,7 @@ func TestServiceCreateCallMarksBootstrapFailure(t *testing.T) {
 			TranscriptStorageStatus: ConsentStatusGranted,
 		},
 		consentFound:  true,
-		template:      CallTemplate{ID: "tmpl-check-in-v1", CallType: CallTypeCheckIn, SystemPromptTemplate: "prompt", IsActive: true},
+		template:      CallTemplate{ID: "tmpl-check-in", CallType: CallTypeCheckIn, SystemPromptTemplate: "prompt", IsActive: true},
 		templateFound: true,
 		createdCallRun: CallRun{
 			ID: "call-run-1",
@@ -117,7 +135,7 @@ func TestServiceCreateCallMarksBootstrapFailure(t *testing.T) {
 	service.now = func() time.Time { return now }
 
 	_, err := service.CreateCall(context.Background(), "patient-1", CreateCallRequest{
-		CallTemplateID: "tmpl-check-in-v1",
+		CallTemplateID: "tmpl-check-in",
 		Channel:        CallChannelBrowser,
 	})
 	if err == nil {
@@ -150,13 +168,13 @@ func TestServiceCreateCallRejectsUnsupportedChannel(t *testing.T) {
 			TranscriptStorageStatus: ConsentStatusGranted,
 		},
 		consentFound:  true,
-		template:      CallTemplate{ID: "tmpl-check-in-v1", CallType: CallTypeCheckIn, SystemPromptTemplate: "prompt", IsActive: true},
+		template:      CallTemplate{ID: "tmpl-check-in", CallType: CallTypeCheckIn, SystemPromptTemplate: "prompt", IsActive: true},
 		templateFound: true,
 	}
 
 	service := NewService(store, failingVoiceCreator{}, "analysis-model")
 	_, err := service.CreateCall(context.Background(), "patient-1", CreateCallRequest{
-		CallTemplateID: "tmpl-check-in-v1",
+		CallTemplateID: "tmpl-check-in",
 		Channel:        "satellite",
 	})
 	if err == nil {
@@ -176,7 +194,7 @@ func TestServiceEnqueueAnalysisRejectsIncompleteCall(t *testing.T) {
 			Status: CallRunStatusRequested,
 		},
 		callRunFound:  true,
-		template:      CallTemplate{ID: "tmpl-check-in-v1", AnalysisPromptVersion: "v1"},
+		template:      CallTemplate{ID: "tmpl-check-in", AnalysisPromptVersion: "v1"},
 		templateFound: true,
 	}
 
@@ -184,5 +202,76 @@ func TestServiceEnqueueAnalysisRejectsIncompleteCall(t *testing.T) {
 	_, err := service.EnqueueAnalysis(context.Background(), "call-run-1", false)
 	if !errors.Is(err, ErrCallRunNotCompleted) {
 		t.Fatalf("expected ErrCallRunNotCompleted, got %v", err)
+	}
+}
+
+func TestServiceCreateCallRendersPromptWithPatientContext(t *testing.T) {
+	t.Parallel()
+
+	voiceCreator := &capturingVoiceCreator{}
+	store := &fakeServiceStore{
+		patient: Patient{
+			ID:                 "patient-1",
+			DisplayName:        "Eleanor Carter",
+			PreferredName:      "Ellie",
+			PrimaryCaregiverID: "caregiver-1",
+			Timezone:           "America/Detroit",
+			CallingState:       CallingStateActive,
+		},
+		patientFound: true,
+		promptContext: CallPromptContext{
+			Patient: Patient{
+				ID:            "patient-1",
+				DisplayName:   "Eleanor Carter",
+				PreferredName: "Ellie",
+				Timezone:      "America/Detroit",
+				RoutineAnchors: []string{
+					"Breakfast",
+				},
+				MemoryProfile: MemoryProfile{
+					Likes:           []string{"Gardening"},
+					TopicsToRevisit: []string{"Sunday baking"},
+				},
+			},
+			SafePeopleForCallAnchor: []PatientPerson{
+				{Name: "Mary", Relationship: "daughter", Context: "Weekly caller"},
+			},
+			PeopleToAvoidNaming: []PatientPerson{
+				{Name: "John", Relationship: "late husband", Context: "Do not raise first"},
+			},
+			RecentMemoryBankEntries: []MemoryBankEntry{
+				{Topic: "Sunday baking", SuggestedFollowUp: "Ask more about baking traditions."},
+			},
+		},
+		consent: ConsentState{
+			PatientID:               "patient-1",
+			OutboundCallStatus:      ConsentStatusGranted,
+			TranscriptStorageStatus: ConsentStatusGranted,
+		},
+		consentFound:  true,
+		template:      CallTemplate{ID: "tmpl-check-in", CallType: CallTypeCheckIn, SystemPromptTemplate: "Hi {{ .PatientFirstName }}\nSafe:\n{{ .SafePeopleForCallAnchorBlock }}\nAvoid:\n{{ .PeopleToAvoidNamingBlock }}\nFollow:\n{{ .RecentMemoryFollowUpsBlock }}", IsActive: true},
+		templateFound: true,
+		createdCallRun: CallRun{
+			ID: "call-run-1",
+		},
+	}
+
+	service := NewService(store, voiceCreator, "analysis-model")
+	_, err := service.CreateCall(context.Background(), "patient-1", CreateCallRequest{
+		CallTemplateID: "tmpl-check-in",
+		Channel:        CallChannelBrowser,
+	})
+	if err != nil {
+		t.Fatalf("CreateCall returned error: %v", err)
+	}
+	if len(voiceCreator.requests) != 1 {
+		t.Fatalf("expected one voice session request, got %d", len(voiceCreator.requests))
+	}
+
+	systemPrompt := voiceCreator.requests[0].SystemPrompt
+	for _, snippet := range []string{"Ellie", "Mary", "John", "Sunday baking"} {
+		if !strings.Contains(systemPrompt, snippet) {
+			t.Fatalf("expected rendered prompt to contain %q, got:\n%s", snippet, systemPrompt)
+		}
 	}
 }

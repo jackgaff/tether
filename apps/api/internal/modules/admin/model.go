@@ -23,6 +23,78 @@ const (
 )
 
 const (
+	PersonStatusConfirmedLiving = "confirmed_living"
+	PersonStatusUnknown         = "unknown"
+	PersonStatusDeceased        = "deceased"
+)
+
+const (
+	RelationshipQualityCloseActive = "close_active"
+	RelationshipQualityUnclear     = "unclear"
+	RelationshipQualityEstranged   = "estranged"
+	RelationshipQualityUnknown     = "unknown"
+)
+
+const (
+	ReminderKindCallPerson  = "call_person"
+	ReminderKindMusic       = "music"
+	ReminderKindShowFilm    = "show_film"
+	ReminderKindJournal     = "journal"
+	ReminderKindAppointment = "appointment"
+	ReminderKindGeneral     = "general"
+)
+
+const (
+	ReminderStatusPending   = "pending"
+	ReminderStatusCompleted = "completed"
+	ReminderStatusDeclined  = "declined"
+	ReminderStatusCancelled = "cancelled"
+)
+
+const (
+	ReminderCreatedByAnalysisWorker = "analysis_worker"
+	ReminderCreatedByAdmin          = "admin"
+)
+
+const (
+	OrientationStatusOriented       = "oriented"
+	OrientationStatusMildlyConfused = "mildly_confused"
+	OrientationStatusDisoriented    = "disoriented"
+)
+
+const (
+	CheckInCaptureReported    = "reported"
+	CheckInCaptureUncertain   = "uncertain"
+	CheckInCaptureNotRecalled = "not_recalled"
+)
+
+const (
+	SocialContactYes = "yes"
+	SocialContactNo  = "no"
+)
+
+const (
+	CheckInMoodCalm       = "calm"
+	CheckInMoodWithdrawn  = "withdrawn"
+	CheckInMoodDistressed = "distressed"
+	CheckInMoodElevated   = "elevated"
+)
+
+const (
+	SleepStatusGood     = "good"
+	SleepStatusPoor     = "poor"
+	SleepStatusReversed = "reversed"
+)
+
+const (
+	AnchorTypeCall     = "call"
+	AnchorTypeMusic    = "music"
+	AnchorTypeShowFilm = "show_film"
+	AnchorTypeJournal  = "journal"
+	AnchorTypeNone     = "none"
+)
+
+const (
 	CallChannelBrowser = "browser"
 	CallChannelConnect = "connect"
 )
@@ -133,10 +205,15 @@ type LifeEvent struct {
 }
 
 type MemoryProfile struct {
-	Likes             []string       `json:"likes"`
-	FamilyMembers     []FamilyMember `json:"familyMembers"`
-	LifeEvents        []LifeEvent    `json:"lifeEvents"`
-	ReminiscenceNotes string         `json:"reminiscenceNotes,omitempty"`
+	Likes              []string       `json:"likes"`
+	FamilyMembers      []FamilyMember `json:"familyMembers"`
+	LifeEvents         []LifeEvent    `json:"lifeEvents"`
+	ReminiscenceNotes  string         `json:"reminiscenceNotes,omitempty"`
+	SignificantPlaces  []string       `json:"significantPlaces"`
+	LifeChapters       []string       `json:"lifeChapters"`
+	FavoriteMusic      []string       `json:"favoriteMusic"`
+	FavoriteShowsFilms []string       `json:"favoriteShowsFilms"`
+	TopicsToRevisit    []string       `json:"topicsToRevisit"`
 }
 
 type ConversationGuidance struct {
@@ -289,22 +366,57 @@ type ScreeningAnalysis struct {
 	SuggestedRescreenWindowBucket string   `json:"suggestedRescreenWindowBucket,omitempty"`
 }
 
+type ReminderNote struct {
+	Title  string `json:"title"`
+	Detail string `json:"detail,omitempty"`
+}
+
 type CheckInAnalysis struct {
-	ReportedDayOverview     string   `json:"reportedDayOverview,omitempty"`
-	FoodAndHydration        string   `json:"foodAndHydration,omitempty"`
-	MedicationMentions      []string `json:"medicationMentions"`
-	MoodSignals             []string `json:"moodSignals"`
-	RoutineAdherence        string   `json:"routineAdherence,omitempty"`
-	SocialContactMentions   []string `json:"socialContactMentions"`
-	FollowUpRequestDetected bool     `json:"followUpRequestDetected"`
+	OrientationStatus         string         `json:"orientationStatus"`
+	OrientationNotes          string         `json:"orientationNotes,omitempty"`
+	MealsStatus               string         `json:"mealsStatus"`
+	MealsDetail               string         `json:"mealsDetail,omitempty"`
+	FluidsStatus              string         `json:"fluidsStatus"`
+	FluidsDetail              string         `json:"fluidsDetail,omitempty"`
+	ActivityDetail            string         `json:"activityDetail,omitempty"`
+	SocialContact             string         `json:"socialContact"`
+	SocialContactDetail       string         `json:"socialContactDetail,omitempty"`
+	RemindersNoted            []ReminderNote `json:"remindersNoted"`
+	ReminderDeclined          bool           `json:"reminderDeclined"`
+	ReminderDeclinedTopic     string         `json:"reminderDeclinedTopic,omitempty"`
+	Mood                      string         `json:"mood"`
+	MoodNotes                 string         `json:"moodNotes,omitempty"`
+	Sleep                     string         `json:"sleep"`
+	SleepNotes                string         `json:"sleepNotes,omitempty"`
+	MemoryFlags               []string       `json:"memoryFlags"`
+	DeliriumWatch             bool           `json:"deliriumWatch"`
+	DeliriumWatchNotes        string         `json:"deliriumWatchNotes,omitempty"`
+	DeliriumPotentialTriggers []string       `json:"deliriumPotentialTriggers"`
+	CaregiverSummary          string         `json:"caregiverSummary,omitempty"`
+}
+
+type MentionedPerson struct {
+	Name         string `json:"name"`
+	Relationship string `json:"relationship,omitempty"`
+	Context      string `json:"context,omitempty"`
 }
 
 type ReminiscenceAnalysis struct {
-	TopicsDiscussed              []string `json:"topicsDiscussed"`
-	PeopleMentioned              []string `json:"peopleMentioned"`
-	PositiveEngagementSignals    []string `json:"positiveEngagementSignals"`
-	DistressOrTriggerSignals     []string `json:"distressOrTriggerSignals"`
-	FutureReminiscenceCandidates []string `json:"futureReminiscenceCandidates"`
+	Topic               string            `json:"topic,omitempty"`
+	MentionedPeople     []MentionedPerson `json:"mentionedPeople"`
+	MentionedPlaces     []string          `json:"mentionedPlaces"`
+	MentionedMusic      []string          `json:"mentionedMusic"`
+	MentionedShowsFilms []string          `json:"mentionedShowsFilms"`
+	LifeChapters        []string          `json:"lifeChapters"`
+	Summary             string            `json:"summary,omitempty"`
+	EmotionalTone       string            `json:"emotionalTone,omitempty"`
+	RespondedWellTo     []string          `json:"respondedWellTo"`
+	AnchorOffered       bool              `json:"anchorOffered"`
+	AnchorType          string            `json:"anchorType,omitempty"`
+	AnchorAccepted      bool              `json:"anchorAccepted"`
+	AnchorDetail        string            `json:"anchorDetail,omitempty"`
+	SuggestedFollowUp   string            `json:"suggestedFollowUp,omitempty"`
+	CaregiverSummary    string            `json:"caregiverSummary,omitempty"`
 }
 
 type LegacyPatientState struct {
@@ -416,6 +528,70 @@ type DashboardSnapshot struct {
 	RiskFlags          []RiskFlag         `json:"riskFlags"`
 }
 
+type PatientPerson struct {
+	ID                      string    `json:"id"`
+	PatientID               string    `json:"patientId"`
+	Name                    string    `json:"name"`
+	Relationship            string    `json:"relationship,omitempty"`
+	Status                  string    `json:"status"`
+	RelationshipQuality     string    `json:"relationshipQuality"`
+	SafeToSuggestCall       bool      `json:"safeToSuggestCall"`
+	FirstMentionedAt        time.Time `json:"firstMentionedAt"`
+	FirstMentionedCallRunID string    `json:"firstMentionedCallRunId,omitempty"`
+	LastMentionedAt         time.Time `json:"lastMentionedAt"`
+	LastMentionedCallRunID  string    `json:"lastMentionedCallRunId,omitempty"`
+	Context                 string    `json:"context,omitempty"`
+	Notes                   string    `json:"notes,omitempty"`
+	CreatedAt               time.Time `json:"createdAt"`
+	UpdatedAt               time.Time `json:"updatedAt"`
+}
+
+type UpdatePatientPersonRequest struct {
+	Name                string `json:"name"`
+	Relationship        string `json:"relationship"`
+	Status              string `json:"status"`
+	RelationshipQuality string `json:"relationshipQuality"`
+	Notes               string `json:"notes"`
+}
+
+type MemoryBankEntry struct {
+	ID                     string          `json:"id"`
+	PatientID              string          `json:"patientId"`
+	SourceCallRunID        string          `json:"sourceCallRunId"`
+	SourceAnalysisResultID string          `json:"sourceAnalysisResultId"`
+	Topic                  string          `json:"topic"`
+	Summary                string          `json:"summary"`
+	EmotionalTone          string          `json:"emotionalTone,omitempty"`
+	RespondedWellTo        []string        `json:"respondedWellTo"`
+	AnchorOffered          bool            `json:"anchorOffered"`
+	AnchorType             string          `json:"anchorType"`
+	AnchorAccepted         bool            `json:"anchorAccepted"`
+	AnchorDetail           string          `json:"anchorDetail,omitempty"`
+	SuggestedFollowUp      string          `json:"suggestedFollowUp,omitempty"`
+	OccurredAt             time.Time       `json:"occurredAt"`
+	People                 []PatientPerson `json:"people"`
+	CreatedAt              time.Time       `json:"createdAt"`
+	UpdatedAt              time.Time       `json:"updatedAt"`
+}
+
+type Reminder struct {
+	ID                           string         `json:"id"`
+	PatientID                    string         `json:"patientId"`
+	SourceCallRunID              string         `json:"sourceCallRunId,omitempty"`
+	SourceAnalysisResultID       string         `json:"sourceAnalysisResultId,omitempty"`
+	Kind                         string         `json:"kind"`
+	Status                       string         `json:"status"`
+	Title                        string         `json:"title"`
+	Detail                       string         `json:"detail,omitempty"`
+	PersonID                     string         `json:"personId,omitempty"`
+	Person                       *PatientPerson `json:"person,omitempty"`
+	CaregiverFollowUpRecommended bool           `json:"caregiverFollowUpRecommended"`
+	SuggestedFor                 *time.Time     `json:"suggestedFor,omitempty"`
+	CreatedBy                    string         `json:"createdBy"`
+	CreatedAt                    time.Time      `json:"createdAt"`
+	UpdatedAt                    time.Time      `json:"updatedAt"`
+}
+
 type CreateCaregiverRequest struct {
 	DisplayName string `json:"displayName"`
 	Email       string `json:"email"`
@@ -499,4 +675,11 @@ type AnalysisPromptContext struct {
 	ScreeningSchedule *ScreeningSchedule   `json:"screeningSchedule,omitempty"`
 	TranscriptTurns   []CallTranscriptTurn `json:"transcriptTurns"`
 	RecentAnalyses    []AnalysisPayload    `json:"recentAnalyses"`
+}
+
+type CallPromptContext struct {
+	Patient                 Patient           `json:"patient"`
+	SafePeopleForCallAnchor []PatientPerson   `json:"safePeopleForCallAnchor"`
+	PeopleToAvoidNaming     []PatientPerson   `json:"peopleToAvoidNaming"`
+	RecentMemoryBankEntries []MemoryBankEntry `json:"recentMemoryBankEntries"`
 }

@@ -17,6 +17,7 @@ import (
 	"nova-echoes/api/internal/modules/patients/preferences"
 	"nova-echoes/api/internal/modules/voice"
 	"nova-echoes/api/internal/modules/voicecatalog"
+	"nova-echoes/api/internal/prompts"
 )
 
 type App struct {
@@ -37,6 +38,10 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	defer cancel()
 
 	if err := db.Migrate(migrateCtx, database); err != nil {
+		_ = database.Close()
+		return nil, err
+	}
+	if err := prompts.SyncCallTemplates(migrateCtx, database); err != nil {
 		_ = database.Close()
 		return nil, err
 	}
@@ -77,9 +82,6 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	backgroundCtx, backgroundCancel := context.WithCancel(context.Background())
 	if cfg.AnalysisWorkerEnabled {
 		go admin.NewAnalysisWorker(adminStore, adminAnalyzer).Run(backgroundCtx, cfg.AnalysisWorkerPollInterval)
-	}
-	if cfg.ScreeningSchedulerEnabled {
-		go admin.NewScreeningScheduler(adminStore).Run(backgroundCtx, cfg.ScreeningSchedulerPollInterval)
 	}
 
 	return &App{
