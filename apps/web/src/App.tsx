@@ -42,7 +42,7 @@ export default function App() {
   const [patientList, setPatientList] = useState<Patient[]>([]);
   const [patientListLoading, setPatientListLoading] = useState(false);
   const [caregiverBootstrapError, setCaregiverBootstrapError] = useState<string | null>(null);
-  const [caregiverBootstrapState, setCaregiverBootstrapState] = useState<"idle" | "running" | "failed">("idle");
+  const [caregiverBootstrapState, setCaregiverBootstrapState] = useState<"idle" | "running" | "ready" | "failed">("idle");
 
   // Dashboard data
   const [dashboard, setDashboard] = useState<DashboardSnapshot | null>(null);
@@ -66,7 +66,7 @@ export default function App() {
   }, [session]);
 
   useEffect(() => {
-    if (!session || caregiverId || patientListLoading || caregiverBootstrapState !== "idle") {
+    if (!session || patientListLoading || caregiverBootstrapState !== "idle") {
       return;
     }
 
@@ -95,11 +95,23 @@ export default function App() {
 
     listCaregivers()
       .then((caregivers) => {
+        const storedCaregiver = caregiverId
+          ? caregivers.find((caregiver) => caregiver.id === caregiverId)
+          : null;
+        if (caregiverId && !storedCaregiver) {
+          setCaregiverId("");
+        }
+        if (storedCaregiver) {
+          setCaregiverBootstrapState("ready");
+          return null;
+        }
+
         const matchingCaregiver = caregivers.find(
           (caregiver) => caregiver.email.trim().toLowerCase() === caregiverEmail
         );
         if (matchingCaregiver) {
           setCaregiverId(matchingCaregiver.id);
+          setCaregiverBootstrapState("ready");
           return null;
         }
         if (patientList.length > 0) {
@@ -111,6 +123,7 @@ export default function App() {
         }
         return createCaregiver(caregiverInput).then((caregiver) => {
           setCaregiverId(caregiver.id);
+          setCaregiverBootstrapState("ready");
           return caregiver;
         });
       })
@@ -126,6 +139,12 @@ export default function App() {
   }, []);
 
   const canRetryCaregiverBootstrap = caregiverBootstrapState === "failed" && patientList.length === 0;
+
+  const refreshCaregiverBootstrap = useCallback(() => {
+    setCaregiverId("");
+    setCaregiverBootstrapError(null);
+    setCaregiverBootstrapState("idle");
+  }, [setCaregiverId]);
 
   const fetchDashboard = useCallback(async (pid: string) => {
     setIsDashboardLoading(true);
@@ -233,6 +252,7 @@ export default function App() {
             caregiverBootstrapError={caregiverBootstrapError}
             canRetryCaregiverBootstrap={canRetryCaregiverBootstrap}
             onRetryCaregiverBootstrap={retryCaregiverBootstrap}
+            onInvalidCaregiverReference={refreshCaregiverBootstrap}
             onCreated={(patient) => {
               setPatientList((prev) => [...prev, patient]);
               selectPatient(patient.id);

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Plus, X, UserPlus, ArrowLeft } from "lucide-react";
+import { ApiError } from "../api/client";
 import { createPatient, updateConsent } from "../api/admin";
 import type { Patient } from "../api/contracts";
 
@@ -25,6 +26,7 @@ interface Props {
   caregiverBootstrapError?: string | null;
   canRetryCaregiverBootstrap?: boolean;
   onRetryCaregiverBootstrap?: () => void;
+  onInvalidCaregiverReference?: () => void;
   onCreated: (patient: Patient) => void;
   onCancel: () => void;
 }
@@ -34,6 +36,7 @@ export function CreatePatient({
   caregiverBootstrapError,
   canRetryCaregiverBootstrap = false,
   onRetryCaregiverBootstrap,
+  onInvalidCaregiverReference,
   onCreated,
   onCancel
 }: Props) {
@@ -127,6 +130,15 @@ export function CreatePatient({
 
       onCreated(patient);
     } catch (err: any) {
+      if (
+        err instanceof ApiError &&
+        err.code === "validation_error" &&
+        err.message.includes("primaryCaregiverId must reference an existing caregiver.")
+      ) {
+        onInvalidCaregiverReference?.();
+        setError("The saved caregiver profile expired. Refreshing it now, then try submitting again.");
+        return;
+      }
       setError(err.message ?? "Failed to create patient");
     } finally {
       setIsSubmitting(false);
