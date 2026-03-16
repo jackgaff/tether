@@ -168,8 +168,8 @@ export function Dashboard({ onNavigate, dashboard, isLoading, error, onRefresh }
         </div>
       )}
 
-      <div className="grid items-start gap-4 xl:grid-cols-5">
-        <div className="flex flex-col gap-4 xl:col-span-3">
+      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(340px,1fr)]">
+        <div className="flex flex-col gap-4">
           <div className="app-panel flex flex-col gap-4 overflow-hidden p-5 lg:flex-row lg:items-center">
             <div className="relative flex-shrink-0">
               <Avatar
@@ -211,97 +211,67 @@ export function Dashboard({ onNavigate, dashboard, isLoading, error, onRefresh }
             </div>
           </div>
 
-          <div className="app-panel-muted p-5">
-            <div className="mb-3 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Clock size={15} className="text-slate-400" strokeWidth={1.75} />
-                <span className="text-base font-semibold text-slate-950">Last call</span>
+          <div className={`grid gap-4 ${latestAnalysis?.result.dashboard_summary ? "lg:grid-cols-5" : ""}`}>
+            <div className={`app-panel-muted p-5 ${latestAnalysis?.result.dashboard_summary ? "lg:col-span-3" : ""}`}>
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <Clock size={15} className="text-slate-400" strokeWidth={1.75} />
+                  <span className="text-base font-semibold text-slate-950">Last call</span>
+                </div>
+                {callStatus && (
+                  <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${callStatus.bg} ${callStatus.text}`}>
+                    {callStatus.label}
+                  </span>
+                )}
               </div>
-              {callStatus && (
-                <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${callStatus.bg} ${callStatus.text}`}>
-                  {callStatus.label}
-                </span>
+              {latestCall ? (
+                <>
+                  <p className="mb-3 text-sm text-slate-500">
+                    {[
+                      formatCallTime(latestCall.startedAt ?? latestCall.requestedAt),
+                      duration,
+                      callTypeLabel(latestCall.callType),
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </p>
+                  {latestAnalysis?.result.caregiver_summary ? (
+                    <p className="text-base leading-relaxed text-slate-700">
+                      {latestAnalysis.result.caregiver_summary}
+                    </p>
+                  ) : (
+                    <p className="text-sm italic text-slate-400">No summary available yet.</p>
+                  )}
+                </>
+              ) : (
+                <p className="text-sm italic text-slate-400">No calls yet.</p>
               )}
             </div>
-            {latestCall ? (
-              <>
-                <p className="mb-3 text-sm text-slate-500">
-                  {[
-                    formatCallTime(latestCall.startedAt ?? latestCall.requestedAt),
-                    duration,
-                    callTypeLabel(latestCall.callType),
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </p>
-                {latestAnalysis?.result.caregiver_summary ? (
+
+            {latestAnalysis?.result.dashboard_summary && (
+              <div className="app-panel-muted flex h-full flex-col gap-3 p-5 lg:col-span-2">
+                <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-white/80">
+                  <Sparkles size={16} className="text-slate-400" strokeWidth={1.75} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <span className="mb-1 block text-sm font-medium text-slate-500">AI insight</span>
                   <p className="text-base leading-relaxed text-slate-700">
-                    {latestAnalysis.result.caregiver_summary}
+                    {latestAnalysis.result.dashboard_summary}
                   </p>
-                ) : (
-                  <p className="text-sm italic text-slate-400">No summary available yet.</p>
-                )}
-              </>
-            ) : (
-              <p className="text-sm italic text-slate-400">No calls yet.</p>
+                </div>
+                <button
+                  onClick={() => onNavigate("recent-calls")}
+                  className="self-start text-sm font-medium text-slate-500 transition-colors hover:text-slate-900"
+                >
+                  View calls
+                </button>
+              </div>
             )}
           </div>
-
-          <div className="grid gap-3 md:grid-cols-3">
-            {[
-              {
-                label: "Recent calls",
-                value: String(dashboard?.recentCalls?.length ?? 0),
-                sub: "in history",
-              },
-              {
-                label: "Calling state",
-                value:
-                  patient?.callingState === "active"
-                    ? "Active"
-                    : patient?.callingState === "paused"
-                      ? "Paused"
-                      : "—",
-                sub: patient?.pauseReason ?? "calls enabled",
-              },
-              {
-                label: "Consent",
-                value:
-                  dashboard?.consent.outboundCallStatus === "granted"
-                    ? "Granted"
-                    : (dashboard?.consent.outboundCallStatus ?? "—"),
-                sub: "outbound calls",
-              },
-            ].map((stat) => (
-              <div key={stat.label} className="app-panel-muted px-4 py-4">
-                <p className="mb-1 text-sm text-slate-400">{stat.label}</p>
-                <p className="text-2xl font-semibold capitalize text-slate-950">{stat.value}</p>
-                <p className="mt-0.5 text-sm text-slate-500">{stat.sub}</p>
-              </div>
-            ))}
-          </div>
-
-          {latestAnalysis?.result.dashboard_summary && (
-            <div className="app-panel-muted flex items-center gap-4 p-5">
-              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-white/80">
-                <Sparkles size={16} className="text-slate-400" strokeWidth={1.75} />
-              </div>
-              <div className="min-w-0 flex-1">
-                <span className="mb-1 block text-sm font-medium text-slate-500">AI insight</span>
-                <p className="text-base text-slate-700">{latestAnalysis.result.dashboard_summary}</p>
-              </div>
-              <button
-                onClick={() => onNavigate("recent-calls")}
-                className="flex-shrink-0 whitespace-nowrap text-sm font-medium text-slate-500 transition-colors hover:text-slate-900"
-              >
-                View calls
-              </button>
-            </div>
-          )}
         </div>
 
-        <div className="flex flex-col gap-4 xl:col-span-2">
-          <div className="app-panel p-5">
+        <div className="flex flex-col gap-4">
+          <div className="app-panel h-full p-5">
             <div className="mb-4 flex items-center gap-2">
               <CalendarDays size={15} className="text-slate-400" strokeWidth={1.75} />
               <span className="text-base font-semibold text-slate-950">Next recommended call</span>
@@ -368,7 +338,7 @@ export function Dashboard({ onNavigate, dashboard, isLoading, error, onRefresh }
           </div>
 
           {patient && (
-            <div className="app-panel-muted p-5">
+            <div className="app-panel-muted h-full p-5">
               <span className="mb-1 block text-base font-semibold text-slate-950">Memory profile</span>
               <p className="mb-4 text-sm text-slate-500">
                 Used to personalise reminiscence calls for {patient.preferredName || patient.displayName}
@@ -434,8 +404,45 @@ export function Dashboard({ onNavigate, dashboard, isLoading, error, onRefresh }
               </div>
             </div>
           )}
+        </div>
+      </div>
 
-          <div className="app-panel-muted p-5">
+      <div className="grid gap-3 md:grid-cols-3">
+            {[
+              {
+                label: "Recent calls",
+                value: String(dashboard?.recentCalls?.length ?? 0),
+                sub: "in history",
+              },
+              {
+                label: "Calling state",
+                value:
+                  patient?.callingState === "active"
+                    ? "Active"
+                    : patient?.callingState === "paused"
+                      ? "Paused"
+                      : "—",
+                sub: patient?.pauseReason ?? "calls enabled",
+              },
+              {
+                label: "Consent",
+                value:
+                  dashboard?.consent.outboundCallStatus === "granted"
+                    ? "Granted"
+                    : (dashboard?.consent.outboundCallStatus ?? "—"),
+                sub: "outbound calls",
+              },
+            ].map((stat) => (
+              <div key={stat.label} className="app-panel-muted h-full px-4 py-4">
+                <p className="mb-1 text-sm text-slate-400">{stat.label}</p>
+                <p className="text-2xl font-semibold capitalize text-slate-950">{stat.value}</p>
+                <p className="mt-0.5 text-sm text-slate-500">{stat.sub}</p>
+              </div>
+            ))}
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.95fr)]">
+          <div className="app-panel-muted h-full p-5">
             <div className="mb-4 flex items-center gap-2">
               <BookOpen size={15} className="text-slate-400" strokeWidth={1.75} />
               <span className="text-base font-semibold text-slate-950">Memory bank</span>
@@ -444,7 +451,7 @@ export function Dashboard({ onNavigate, dashboard, isLoading, error, onRefresh }
               <div className="divide-y divide-slate-100">
                 {recentMemoryBankEntries.map((entry) => (
                   <div key={entry.id} className="py-3 first:pt-0 last:pb-0">
-                    <div className="flex items-start justify-between gap-3">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                       <div>
                         <p className="text-sm font-medium text-slate-900">{entry.topic}</p>
                         <p className="mt-1 text-sm leading-relaxed text-slate-600">{entry.summary}</p>
@@ -473,7 +480,7 @@ export function Dashboard({ onNavigate, dashboard, isLoading, error, onRefresh }
             )}
           </div>
 
-          <div className="app-panel-muted p-5">
+          <div className="app-panel-muted h-full p-5">
             <div className="mb-4 flex items-center gap-2">
               <Users size={15} className="text-slate-400" strokeWidth={1.75} />
               <span className="text-base font-semibold text-slate-950">People learned from calls</span>
@@ -481,7 +488,7 @@ export function Dashboard({ onNavigate, dashboard, isLoading, error, onRefresh }
             {patientPeople.length > 0 ? (
               <div className="divide-y divide-slate-100">
                 {patientPeople.map((person) => (
-                  <div key={person.id} className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
+                  <div key={person.id} className="flex flex-col gap-3 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <p className="text-sm font-medium text-slate-900">{person.name}</p>
                       <p className="text-xs text-slate-500">
@@ -503,7 +510,6 @@ export function Dashboard({ onNavigate, dashboard, isLoading, error, onRefresh }
               <p className="text-sm italic text-slate-400">No people have been extracted from calls yet.</p>
             )}
           </div>
-        </div>
       </div>
     </div>
   );
