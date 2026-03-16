@@ -1,12 +1,8 @@
 import type { ReactNode } from "react";
 import {
   LayoutGrid,
-  Users,
   PhoneOutgoing,
   Clock,
-  Code2,
-  Settings,
-  LogOut,
   ChevronLeft,
   ChevronRight,
   Radio,
@@ -28,19 +24,11 @@ const sections: { label: string; items: { id: Page; label: string; Icon: LucideI
     items: [{ id: "dashboard", label: "Dashboard", Icon: LayoutGrid }],
   },
   {
-    label: "Patients",
-    items: [
-      { id: "patients", label: "All Patients", Icon: Users },
-      { id: "schedule-call", label: "Schedule Call", Icon: PhoneOutgoing },
-    ],
-  },
-  {
     label: "Calls",
-    items: [{ id: "recent-calls", label: "Recent Calls", Icon: Clock }],
-  },
-  {
-    label: "Developer",
-    items: [{ id: "api-surface", label: "API Surface", Icon: Code2 }],
+    items: [
+      { id: "schedule-call", label: "Schedule Call", Icon: PhoneOutgoing },
+      { id: "recent-calls", label: "Recent Calls", Icon: Clock },
+    ],
   },
 ];
 
@@ -106,7 +94,7 @@ export function Sidebar({ currentPage, onNavigate, collapsed, onToggleCollapse, 
       </nav>
 
       {/* Bottom */}
-      <div className="border-t border-gray-100 px-2.5 py-3 space-y-0.5">
+      <div className="border-t border-gray-100 px-2.5 py-3">
         <button
           onClick={onToggleCollapse}
           title={collapsed ? "Expand" : "Collapse"}
@@ -118,22 +106,6 @@ export function Sidebar({ currentPage, onNavigate, collapsed, onToggleCollapse, 
             <ChevronLeft size={16} className="flex-shrink-0" strokeWidth={1.75} />
           )}
           {!collapsed && <span>Collapse</span>}
-        </button>
-        <button
-          disabled
-          title="Settings"
-          className="w-full flex items-center gap-2.5 px-2.5 py-[7px] rounded-md text-sm text-gray-300"
-        >
-          <Settings size={16} className="flex-shrink-0" strokeWidth={1.75} />
-          {!collapsed && <span>Settings</span>}
-        </button>
-        <button
-          disabled
-          title="Logout"
-          className="w-full flex items-center gap-2.5 px-2.5 py-[7px] rounded-md text-sm text-gray-300"
-        >
-          <LogOut size={16} className="flex-shrink-0" strokeWidth={1.75} />
-          {!collapsed && <span>Logout</span>}
         </button>
       </div>
     </aside>

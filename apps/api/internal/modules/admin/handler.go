@@ -90,6 +90,15 @@ func (h *Handler) CreateCaregiver(w http.ResponseWriter, r *http.Request) {
 	respond.JSON(w, http.StatusCreated, caregiver, nil)
 }
 
+func (h *Handler) ListCaregivers(w http.ResponseWriter, r *http.Request) {
+	caregivers, err := h.store.ListCaregivers(r.Context())
+	if err != nil {
+		respond.Error(w, http.StatusInternalServerError, "store_error", "Could not list caregivers.")
+		return
+	}
+	respond.JSON(w, http.StatusOK, caregivers, nil)
+}
+
 func (h *Handler) GetCaregiver(w http.ResponseWriter, r *http.Request) {
 	caregiverID := strings.TrimSpace(r.PathValue("id"))
 	caregiver, ok, err := h.store.GetCaregiver(r.Context(), caregiverID)

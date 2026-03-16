@@ -2,17 +2,22 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Radio, UserPlus, LogOut } from "lucide-react";
 import { Sidebar } from "./components/Sidebar";
 import { Dashboard } from "./pages/Dashboard";
-import { Patients } from "./pages/Patients";
 import { ScheduleCall } from "./pages/ScheduleCall";
 import { RecentCalls } from "./pages/RecentCalls";
-import { ApiSurface } from "./pages/ApiSurface";
 import { CreatePatient } from "./pages/CreatePatient";
-import { createCaregiver, getAdminSession, loginAdmin, getDashboard, listPatients } from "./api/admin";
+import {
+  createCaregiver,
+  getAdminSession,
+  loginAdmin,
+  getDashboard,
+  listCaregivers,
+  listPatients
+} from "./api/admin";
 import { useStoredString } from "./app/storage";
 import { STORAGE_KEYS } from "./app/constants";
 import type { AdminSession, DashboardSnapshot, Patient } from "./api/contracts";
 
-export type Page = "dashboard" | "patients" | "schedule-call" | "recent-calls" | "api-surface";
+export type Page = "dashboard" | "schedule-call" | "recent-calls";
 
 // Screens outside the main console
 type PreConsoleScreen = "picker" | "create-patient";
@@ -61,7 +66,7 @@ export default function App() {
   }, [session]);
 
   useEffect(() => {
-    if (!session || caregiverId || patientListLoading || patientList.length > 0 || bootstrapAttemptedRef.current) {
+    if (!session || caregiverId || patientListLoading || bootstrapAttemptedRef.current) {
       return;
     }
 
@@ -75,7 +80,7 @@ export default function App() {
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "") || "demo-admin";
 
-    createCaregiver({
+    const caregiverInput = {
       displayName: session.username
         .trim()
         .split(/[\s-_]+/)
@@ -85,8 +90,22 @@ export default function App() {
       email: `${usernameSlug}@local.nova-echoes.test`,
       phoneE164: "",
       timezone
-    })
-      .then((caregiver) => setCaregiverId(caregiver.id))
+    };
+
+    listCaregivers()
+      .then((caregivers) => {
+        if (caregivers.length > 0) {
+          setCaregiverId(caregivers[0].id);
+          return null;
+        }
+        if (patientList.length > 0) {
+          return null;
+        }
+        return createCaregiver(caregiverInput).then((caregiver) => {
+          setCaregiverId(caregiver.id);
+          return caregiver;
+        });
+      })
       .catch((err: any) => {
         bootstrapAttemptedRef.current = false;
         setCaregiverBootstrapError(err?.message ?? "Could not prepare the caregiver profile.");
@@ -281,13 +300,6 @@ export default function App() {
             onRefresh={() => fetchDashboard(patientId)}
           />
         );
-      case "patients":
-        return (
-          <Patients
-            patient={dashboard?.patient ?? null}
-            onScheduleCall={() => setCurrentPage("schedule-call")}
-          />
-        );
       case "schedule-call":
         return (
           <ScheduleCall
@@ -306,8 +318,6 @@ export default function App() {
             latestAnalysis={dashboard?.latestAnalysis}
           />
         );
-      case "api-surface":
-        return <ApiSurface />;
     }
   }
 

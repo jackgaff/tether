@@ -160,10 +160,10 @@ export function CreatePatient({ caregiverId, onCreated, onCancel }: Props) {
               <label className={labelCls}>
                 Full name <span className="text-red-400">*</span>
               </label>
+              <p className={hintCls}>As it appears on their records</p>
               <input
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="Margaret Johnson"
                 required
                 autoFocus
                 className={inputCls}
@@ -175,7 +175,6 @@ export function CreatePatient({ caregiverId, onCreated, onCancel }: Props) {
               <input
                 value={preferredName}
                 onChange={(e) => setPreferredName(e.target.value)}
-                placeholder="Maggie"
                 className={inputCls}
               />
             </div>
@@ -188,12 +187,12 @@ export function CreatePatient({ caregiverId, onCreated, onCancel }: Props) {
               <input
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
-                placeholder="+1 555 000 0000"
                 className={inputCls}
               />
             </div>
             <div>
               <label className={labelCls}>Timezone</label>
+              <p className={hintCls}>Used to schedule calls at the right time</p>
               <select
                 value={timezone}
                 onChange={(e) => setTimezone(e.target.value)}
@@ -212,7 +211,6 @@ export function CreatePatient({ caregiverId, onCreated, onCancel }: Props) {
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="E.g. Early-stage memory difficulties, responds well to familiar topics and calm tone"
               rows={3}
               className={inputCls}
             />
@@ -253,7 +251,6 @@ export function CreatePatient({ caregiverId, onCreated, onCancel }: Props) {
                 value={interestInput}
                 onChange={(e) => setInterestInput(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addInterest(); } }}
-                placeholder="e.g. jazz music, gardening, crosswords"
                 className={inputCls}
               />
               <button
@@ -291,14 +288,12 @@ export function CreatePatient({ caregiverId, onCreated, onCancel }: Props) {
               <input
                 value={memberName}
                 onChange={(e) => setMemberName(e.target.value)}
-                placeholder="Name"
                 className={inputCls}
               />
               <input
                 value={memberRelation}
                 onChange={(e) => setMemberRelation(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addMember(); } }}
-                placeholder="Relationship (e.g. daughter)"
                 className={inputCls}
               />
               <button
@@ -321,7 +316,6 @@ export function CreatePatient({ caregiverId, onCreated, onCancel }: Props) {
             <textarea
               value={memoriesNotes}
               onChange={(e) => setMemoriesNotes(e.target.value)}
-              placeholder="E.g. Grew up on a farm in Vermont, worked as a school teacher for 30 years, loves talking about family vacations to the Maine coast"
               rows={4}
               className={inputCls}
             />
@@ -352,7 +346,6 @@ export function CreatePatient({ caregiverId, onCreated, onCancel }: Props) {
                 value={avoidInput}
                 onChange={(e) => setAvoidInput(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addAvoid(); } }}
-                placeholder="e.g. recent news, their late spouse"
                 className={inputCls}
               />
               <button

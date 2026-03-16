@@ -66,6 +66,7 @@ func New(cfg config.Config, deps Dependencies) http.Handler {
 		mux.Handle("GET /api/v1/admin/session", middleware.Apply(http.HandlerFunc(deps.Admin.CurrentSession), adminReadMiddleware...))
 		mux.Handle("POST /api/v1/admin/session/logout", middleware.Apply(http.HandlerFunc(deps.Admin.Logout), adminWriteMiddleware...))
 		mux.Handle("POST /api/v1/admin/caregivers", middleware.Apply(http.HandlerFunc(deps.Admin.CreateCaregiver), adminWriteMiddleware...))
+		mux.Handle("GET /api/v1/admin/caregivers", middleware.Apply(http.HandlerFunc(deps.Admin.ListCaregivers), adminReadMiddleware...))
 		mux.Handle("GET /api/v1/admin/caregivers/{id}", middleware.Apply(http.HandlerFunc(deps.Admin.GetCaregiver), adminReadMiddleware...))
 		mux.Handle("PUT /api/v1/admin/caregivers/{id}", middleware.Apply(http.HandlerFunc(deps.Admin.UpdateCaregiver), adminWriteMiddleware...))
 		mux.Handle("GET /api/v1/admin/patients", middleware.Apply(http.HandlerFunc(deps.Admin.ListPatients), adminReadMiddleware...))

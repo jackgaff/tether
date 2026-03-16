@@ -15,6 +15,7 @@ import (
 
 type Store interface {
 	CreateCaregiver(ctx context.Context, input CreateCaregiverRequest) (Caregiver, error)
+	ListCaregivers(ctx context.Context) ([]Caregiver, error)
 	GetCaregiver(ctx context.Context, caregiverID string) (Caregiver, bool, error)
 	UpdateCaregiver(ctx context.Context, caregiverID string, input UpdateCaregiverRequest) (Caregiver, error)
 	CreatePatient(ctx context.Context, input CreatePatientRequest) (Patient, error)
@@ -150,6 +151,31 @@ func (s *PostgresStore) GetCaregiver(ctx context.Context, caregiverID string) (C
 	}
 
 	return caregiver, true, nil
+}
+
+func (s *PostgresStore) ListCaregivers(ctx context.Context) ([]Caregiver, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		select id, display_name, email, phone_e164, timezone, created_at, updated_at
+		from caregivers
+		order by created_at asc
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list caregivers: %w", err)
+	}
+	defer rows.Close()
+
+	var caregivers []Caregiver
+	for rows.Next() {
+		c, scanErr := scanCaregiver(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("scan caregiver: %w", scanErr)
+		}
+		caregivers = append(caregivers, c)
+	}
+	if caregivers == nil {
+		caregivers = []Caregiver{}
+	}
+	return caregivers, rows.Err()
 }
 
 func (s *PostgresStore) UpdateCaregiver(ctx context.Context, caregiverID string, input UpdateCaregiverRequest) (Caregiver, error) {

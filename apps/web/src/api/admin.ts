@@ -39,6 +39,10 @@ export function logoutAdmin(): Promise<{ status: "logged_out" }> {
   });
 }
 
+export function listCaregivers(): Promise<Caregiver[]> {
+  return request<Caregiver[]>("/api/v1/admin/caregivers");
+}
+
 export function createCaregiver(input: CaregiverInput): Promise<Caregiver> {
   return request<Caregiver>("/api/v1/admin/caregivers", {
     method: "POST",
