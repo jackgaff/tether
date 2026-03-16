@@ -258,9 +258,15 @@ func TestAdminCaregiverFlowWithVoiceLifecycleAndAnalysis(t *testing.T) {
 	if dashboard.ActiveNextCallPlan == nil || dashboard.ActiveNextCallPlan.ApprovalStatus != admin.NextCallStatusApproved {
 		t.Fatalf("expected approved active next-call plan, got %+v", dashboard.ActiveNextCallPlan)
 	}
+	if len(dashboard.PatientPeople) == 0 {
+		t.Fatal("expected patient people materialized from check-in analysis")
+	}
 
 	var people []admin.PatientPerson
 	doJSON(t, client, http.MethodGet, server.URL+"/api/v1/admin/patients/"+patient.ID+"/people", nil, http.StatusOK, &people)
+	if len(people) == 0 {
+		t.Fatal("expected patient people from check-in analysis")
+	}
 
 	var reminders []admin.Reminder
 	doJSON(t, client, http.MethodGet, server.URL+"/api/v1/admin/patients/"+patient.ID+"/reminders", nil, http.StatusOK, &reminders)
@@ -445,6 +451,9 @@ func (staticAnalysisRunner) Analyze(_ context.Context, promptContext admin.Analy
 			ActivityDetail:            "Shared a brief update about the day.",
 			SocialContact:             admin.SocialContactYes,
 			SocialContactDetail:       "Spoke with Echo.",
+			MentionedPeople: []admin.MentionedPerson{
+				{Name: "Sam", Relationship: "neighbor", Context: "Patient mentioned wanting to catch up soon."},
+			},
 			RemindersNoted:            []admin.ReminderNote{{Title: "Check on the garden", Detail: "Would like a reminder tomorrow morning."}},
 			ReminderDeclined:          false,
 			Mood:                      admin.CheckInMoodCalm,

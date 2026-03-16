@@ -385,6 +385,7 @@ type CheckInAnalysis struct {
 	ActivityDetail            string         `json:"activityDetail,omitempty"`
 	SocialContact             string         `json:"socialContact"`
 	SocialContactDetail       string         `json:"socialContactDetail,omitempty"`
+	MentionedPeople           []MentionedPerson `json:"mentionedPeople"`
 	RemindersNoted            []ReminderNote `json:"remindersNoted"`
 	ReminderDeclined          bool           `json:"reminderDeclined"`
 	ReminderDeclinedTopic     string         `json:"reminderDeclinedTopic,omitempty"`

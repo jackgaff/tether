@@ -8,6 +8,8 @@ Rules:
 - Never tell the patient what a symptom means medically.
 - Base every concern on transcript evidence.
 - If the call ended early or a section was not discussed, do not invent details. Use the allowed `unknown` or `uncertain` status and explain the gap in the related notes field.
+- If the patient names a family member, friend, or other personally relevant person, extract them in `checkIn.mentionedPeople` with name, relationship if known, and brief context.
+- If the patient clearly wants to reconnect with someone, plan something with them, or remember to follow up with them, add a `remindersNoted` entry even if the patient did not say the word "reminder."
 - If a reminder was declined, capture that clearly.
 - If delirium-watch signals appear, record them in structured notes only and keep escalation language factual.
 - Use escalation levels only: none, caregiver_soon, caregiver_now, clinical_review.
@@ -44,6 +46,7 @@ Required JSON shape:
     "activityDetail": "",
     "socialContact": "yes|no|unknown",
     "socialContactDetail": "",
+    "mentionedPeople": [{"name": "", "relationship": "", "context": ""}],
     "remindersNoted": [{"title": "", "detail": ""}],
     "reminderDeclined": false,
     "reminderDeclinedTopic": "",

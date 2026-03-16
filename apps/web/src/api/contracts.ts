@@ -260,6 +260,7 @@ export interface CheckInAnalysis {
   activityDetail?: string;
   socialContact: "yes" | "no" | "unknown";
   socialContactDetail?: string;
+  mentionedPeople?: MentionedPerson[];
   remindersNoted: ReminderNote[];
   reminderDeclined: boolean;
   reminderDeclinedTopic?: string;

@@ -319,6 +319,11 @@ func (s *PostgresStore) materializeAnalysisSideEffectsTx(ctx context.Context, tx
 
 func (s *PostgresStore) materializeCheckInTx(ctx context.Context, tx *sql.Tx, input SaveAnalysisResultInput, analysisID string) error {
 	checkIn := input.Result.CheckIn
+	people, err := s.upsertMentionedPeopleTx(ctx, tx, input.PatientID, input.CallRunID, input.GeneratedAt, checkIn.MentionedPeople)
+	if err != nil {
+		return err
+	}
+
 	for _, reminder := range checkIn.RemindersNoted {
 		title := strings.TrimSpace(reminder.Title)
 		detail := strings.TrimSpace(reminder.Detail)
@@ -338,6 +343,7 @@ func (s *PostgresStore) materializeCheckInTx(ctx context.Context, tx *sql.Tx, in
 			Status:                       ReminderStatusPending,
 			Title:                        chooseString(title, "Reminder"),
 			Detail:                       detail,
+			PersonID:                     matchMentionedPersonInText(title+" "+detail, people),
 			CaregiverFollowUpRecommended: false,
 			CreatedBy:                    ReminderCreatedByAnalysisWorker,
 			CreatedAt:                    input.GeneratedAt,
@@ -356,6 +362,7 @@ func (s *PostgresStore) materializeCheckInTx(ctx context.Context, tx *sql.Tx, in
 			Status:                       ReminderStatusDeclined,
 			Title:                        title,
 			Detail:                       "Declined during check-in. Caregiver follow-up recommended.",
+			PersonID:                     matchMentionedPersonInText(title, people),
 			CaregiverFollowUpRecommended: true,
 			CreatedBy:                    ReminderCreatedByAnalysisWorker,
 			CreatedAt:                    input.GeneratedAt,
@@ -682,6 +689,28 @@ func (s *PostgresStore) matchSafePersonForAnchorTx(ctx context.Context, tx *sql.
 		return "", nil
 	}
 	return matches[0], nil
+}
+
+func matchMentionedPersonInText(text string, people []PatientPerson) string {
+	normalizedText := strings.ToLower(strings.TrimSpace(text))
+	if normalizedText == "" {
+		return ""
+	}
+
+	matches := make([]string, 0, 1)
+	for _, person := range people {
+		name := strings.ToLower(strings.TrimSpace(person.Name))
+		if name == "" {
+			continue
+		}
+		if strings.Contains(normalizedText, name) {
+			matches = append(matches, person.ID)
+		}
+	}
+	if len(matches) != 1 {
+		return ""
+	}
+	return matches[0]
 }
 
 func insertPatientReminderTx(ctx context.Context, tx *sql.Tx, params createReminderParams) (string, error) {

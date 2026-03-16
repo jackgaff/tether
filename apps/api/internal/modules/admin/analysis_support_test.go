@@ -22,6 +22,9 @@ func TestNormalizeAnalysisPayloadCanonicalizesPartialCheckInValues(t *testing.T)
 			MealsStatus:       "not discussed",
 			FluidsStatus:      "mentioned",
 			SocialContact:     "not discussed",
+			MentionedPeople: []MentionedPerson{
+				{Name: " Pat ", Relationship: " friend ", Context: " talked recently "},
+			},
 			Mood:              "neutral",
 			Sleep:             "N/A",
 			RemindersNoted: []ReminderNote{
@@ -58,6 +61,9 @@ func TestNormalizeAnalysisPayloadCanonicalizesPartialCheckInValues(t *testing.T)
 	}
 	if payload.CheckIn.Sleep != SleepStatusUnknown {
 		t.Fatalf("expected sleep %q, got %q", SleepStatusUnknown, payload.CheckIn.Sleep)
+	}
+	if payload.CheckIn.MentionedPeople[0].Name != "Pat" || payload.CheckIn.MentionedPeople[0].Relationship != "friend" || payload.CheckIn.MentionedPeople[0].Context != "talked recently" {
+		t.Fatalf("expected trimmed mentioned person, got %#v", payload.CheckIn.MentionedPeople[0])
 	}
 	if payload.CheckIn.RemindersNoted[0].Title != "Follow up" || payload.CheckIn.RemindersNoted[0].Detail != "tomorrow" {
 		t.Fatalf("expected trimmed reminder note, got %#v", payload.CheckIn.RemindersNoted[0])

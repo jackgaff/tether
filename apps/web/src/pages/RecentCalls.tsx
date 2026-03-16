@@ -523,6 +523,7 @@ function PillList({ values, tone = "gray" }: { values: string[]; tone?: "gray" |
 }
 
 function CheckInDetail({ analysis, followUp }: { analysis: CheckInAnalysis; followUp?: boolean }) {
+  const mentionedPeople = analysis.mentionedPeople ?? [];
   return (
     <div className="bg-white border border-gray-200 rounded-2xl p-5">
       <h2 className="text-sm font-semibold text-gray-900 mb-3">Check-In Details</h2>
@@ -544,6 +545,21 @@ function CheckInDetail({ analysis, followUp }: { analysis: CheckInAnalysis; foll
           label="Social contact"
           value={[analysis.socialContact.replace(/_/g, " "), analysis.socialContactDetail].filter(Boolean).join(" · ")}
         />
+        {mentionedPeople.length > 0 && (
+          <div>
+            <p className="text-xs font-medium text-gray-400 mb-1">People mentioned</p>
+            <div className="space-y-2">
+              {mentionedPeople.map((person) => (
+                <div key={`${person.name}-${person.relationship ?? ""}`} className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                  <p className="text-sm font-medium text-gray-700">
+                    {[person.name, person.relationship].filter(Boolean).join(" · ")}
+                  </p>
+                  {person.context && <p className="text-xs text-gray-500 mt-0.5">{person.context}</p>}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         <DetailRow
           label="Mood"
           value={[analysis.mood.replace(/_/g, " "), analysis.moodNotes].filter(Boolean).join(" · ")}

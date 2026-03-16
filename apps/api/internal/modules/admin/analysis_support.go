@@ -60,6 +60,11 @@ func normalizeAnalysisPayload(payload *AnalysisPayload) {
 		}, CheckInMoodUnknown)
 		payload.CheckIn.Sleep = normalizeEnumValue(payload.CheckIn.Sleep, nil, SleepStatusUnknown)
 
+		for index := range payload.CheckIn.MentionedPeople {
+			payload.CheckIn.MentionedPeople[index].Name = strings.TrimSpace(payload.CheckIn.MentionedPeople[index].Name)
+			payload.CheckIn.MentionedPeople[index].Relationship = strings.TrimSpace(payload.CheckIn.MentionedPeople[index].Relationship)
+			payload.CheckIn.MentionedPeople[index].Context = strings.TrimSpace(payload.CheckIn.MentionedPeople[index].Context)
+		}
 		for index := range payload.CheckIn.RemindersNoted {
 			payload.CheckIn.RemindersNoted[index].Title = strings.TrimSpace(payload.CheckIn.RemindersNoted[index].Title)
 			payload.CheckIn.RemindersNoted[index].Detail = strings.TrimSpace(payload.CheckIn.RemindersNoted[index].Detail)
@@ -157,6 +162,11 @@ func validateAnalysisPayload(callType string, payload AnalysisPayload) error {
 		}
 		if !contains(validSleepStatuses(), payload.CheckIn.Sleep) {
 			return newValidationError("analysis result checkIn.sleep is invalid")
+		}
+		for _, person := range payload.CheckIn.MentionedPeople {
+			if strings.TrimSpace(person.Name) == "" {
+				return newValidationError("analysis result checkIn.mentionedPeople.name is required")
+			}
 		}
 		for _, reminder := range payload.CheckIn.RemindersNoted {
 			if strings.TrimSpace(reminder.Title) == "" && strings.TrimSpace(reminder.Detail) == "" {
