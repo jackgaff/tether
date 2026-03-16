@@ -7,15 +7,15 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"nova-echoes/api/internal/config"
-	"nova-echoes/api/internal/testsupport"
+	"tether/api/internal/config"
+	"tether/api/internal/testsupport"
 )
 
 func TestCreateCheckInSuccess(t *testing.T) {
 	t.Parallel()
 
 	handler := testsupport.NewHandler(config.Config{
-		AppName:        "Nova Echoes",
+		AppName:        "Tether",
 		AppEnv:         "test",
 		Port:           "8080",
 		FrontendOrigin: "http://localhost:5173",
@@ -50,7 +50,7 @@ func TestCreateCheckInValidationError(t *testing.T) {
 	t.Parallel()
 
 	handler := testsupport.NewHandler(config.Config{
-		AppName:        "Nova Echoes",
+		AppName:        "Tether",
 		AppEnv:         "test",
 		Port:           "8080",
 		FrontendOrigin: "http://localhost:5173",
@@ -84,7 +84,7 @@ func TestCreateCheckInRequiresAPIKeyWhenEnabled(t *testing.T) {
 	t.Parallel()
 
 	handler := testsupport.NewHandler(config.Config{
-		AppName:        "Nova Echoes",
+		AppName:        "Tether",
 		AppEnv:         "test",
 		Port:           "8080",
 		FrontendOrigin: "http://localhost:5173",

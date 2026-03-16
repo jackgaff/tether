@@ -25,8 +25,8 @@ func TestNormalizeAnalysisPayloadCanonicalizesPartialCheckInValues(t *testing.T)
 			MentionedPeople: []MentionedPerson{
 				{Name: " Pat ", Relationship: " friend ", Context: " talked recently "},
 			},
-			Mood:              "neutral",
-			Sleep:             "N/A",
+			Mood:  "neutral",
+			Sleep: "N/A",
 			RemindersNoted: []ReminderNote{
 				{Title: "  Follow up  ", Detail: " tomorrow "},
 			},
@@ -97,5 +97,115 @@ func TestValidateAnalysisPayloadAllowsUnknownPartialCheckInFields(t *testing.T) 
 
 	if err := validateAnalysisPayload(CallTypeCheckIn, payload); err != nil {
 		t.Fatalf("expected payload to validate, got %v", err)
+	}
+}
+
+func TestNormalizeAnalysisPayloadDedupesDurableLists(t *testing.T) {
+	t.Parallel()
+
+	payload := AnalysisPayload{
+		Summary: "  Recap  ",
+		FollowUpIntent: FollowUpIntent{
+			TimeframeBucket: TimeframeUnspecified,
+		},
+		CheckIn: &CheckInAnalysis{
+			MemoryFlags: []string{" repeat question ", "repeat question", ""},
+			MentionedPeople: []MentionedPerson{
+				{Name: " Pat ", Relationship: "friend", Context: "school"},
+				{Name: "pat", Relationship: "friend", Context: "school"},
+				{Name: " "},
+			},
+			RemindersNoted: []ReminderNote{
+				{Title: " Call Pat ", Detail: " tomorrow "},
+				{Title: "call pat", Detail: "tomorrow"},
+				{Title: "", Detail: ""},
+			},
+			DeliriumPotentialTriggers: []string{" dehydration ", "dehydration"},
+		},
+		Reminiscence: &ReminiscenceAnalysis{
+			RespondedWellTo: []string{"music", " music "},
+		},
+	}
+
+	normalizeAnalysisPayload(&payload)
+
+	if payload.Summary != "Recap" {
+		t.Fatalf("expected trimmed summary, got %q", payload.Summary)
+	}
+	if len(payload.CheckIn.MemoryFlags) != 1 || payload.CheckIn.MemoryFlags[0] != "repeat question" {
+		t.Fatalf("expected deduped memory flags, got %#v", payload.CheckIn.MemoryFlags)
+	}
+	if len(payload.CheckIn.MentionedPeople) != 1 || payload.CheckIn.MentionedPeople[0].Name != "Pat" {
+		t.Fatalf("expected deduped/trimmed people, got %#v", payload.CheckIn.MentionedPeople)
+	}
+	if len(payload.CheckIn.RemindersNoted) != 1 || payload.CheckIn.RemindersNoted[0].Title != "Call Pat" {
+		t.Fatalf("expected deduped reminders, got %#v", payload.CheckIn.RemindersNoted)
+	}
+	if len(payload.CheckIn.DeliriumPotentialTriggers) != 1 || payload.CheckIn.DeliriumPotentialTriggers[0] != "dehydration" {
+		t.Fatalf("expected deduped triggers, got %#v", payload.CheckIn.DeliriumPotentialTriggers)
+	}
+	if len(payload.Reminiscence.RespondedWellTo) != 1 || payload.Reminiscence.RespondedWellTo[0] != "music" {
+		t.Fatalf("expected deduped respondedWellTo, got %#v", payload.Reminiscence.RespondedWellTo)
+	}
+}
+
+func TestValidateAnalysisPayloadRejectsReminiscenceAnchorContradictions(t *testing.T) {
+	t.Parallel()
+
+	payload := AnalysisPayload{
+		Summary:         "Memory call summary.",
+		EscalationLevel: EscalationNone,
+		FollowUpIntent: FollowUpIntent{
+			TimeframeBucket: TimeframeUnspecified,
+			Confidence:      0.3,
+		},
+		Reminiscence: &ReminiscenceAnalysis{
+			AnchorOffered:  false,
+			AnchorAccepted: true,
+			AnchorType:     AnchorTypeNone,
+		},
+	}
+
+	if err := validateAnalysisPayload(CallTypeReminiscence, payload); err == nil {
+		t.Fatal("expected reminiscence anchor contradiction to fail validation")
+	}
+}
+
+func TestValidateAnalysisPayloadRequiresSupportForUrgentRisk(t *testing.T) {
+	t.Parallel()
+
+	payload := AnalysisPayload{
+		Summary:         "Escalation needed.",
+		EscalationLevel: EscalationCaregiverNow,
+		FollowUpIntent: FollowUpIntent{
+			TimeframeBucket: TimeframeSameDay,
+			Confidence:      0.8,
+		},
+		RiskFlags: []AnalysisRiskFlag{
+			{
+				FlagType:   "acute_confusion",
+				Severity:   RiskSeverityUrgent,
+				Confidence: 0.8,
+				Evidence:   "",
+				Reason:     "",
+			},
+		},
+		CheckIn: &CheckInAnalysis{
+			OrientationStatus:         OrientationStatusMildlyConfused,
+			MealsStatus:               CheckInCaptureUncertain,
+			FluidsStatus:              CheckInCaptureUncertain,
+			SocialContact:             SocialContactUnknown,
+			RemindersNoted:            []ReminderNote{},
+			ReminderDeclined:          false,
+			Mood:                      CheckInMoodUnknown,
+			Sleep:                     SleepStatusUnknown,
+			MemoryFlags:               []string{},
+			DeliriumWatch:             true,
+			DeliriumPotentialTriggers: []string{},
+		},
+	}
+
+	if err := validateAnalysisPayload(CallTypeCheckIn, payload); err == nil {
+		t.Fatal("expected urgent risk without evidence/reason to fail validation")
 	}
 }

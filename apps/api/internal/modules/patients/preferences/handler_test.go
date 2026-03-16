@@ -7,8 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"nova-echoes/api/internal/modules/patients/preferences"
-	"nova-echoes/api/internal/modules/voicecatalog"
+	"tether/api/internal/modules/patients/preferences"
+	"tether/api/internal/modules/voicecatalog"
 )
 
 func TestGetPreferencesReturnsDefaultWhenMissing(t *testing.T) {

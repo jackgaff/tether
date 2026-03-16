@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"nova-echoes/api/internal/adminsession"
-	"nova-echoes/api/internal/httpserver/respond"
+	"tether/api/internal/adminsession"
+	"tether/api/internal/httpserver/respond"
 )
 
 type Handler struct {
@@ -244,6 +244,40 @@ func (h *Handler) ListPatientPeople(w http.ResponseWriter, r *http.Request) {
 	respond.JSON(w, http.StatusOK, people, map[string]any{"count": len(people)})
 }
 
+func (h *Handler) CreatePatientPerson(w http.ResponseWriter, r *http.Request) {
+	patientID := strings.TrimSpace(r.PathValue("id"))
+	if _, ok, err := h.store.GetPatient(r.Context(), patientID); err != nil {
+		respond.Error(w, http.StatusInternalServerError, "store_error", "Could not create patient person.")
+		return
+	} else if !ok {
+		respond.Error(w, http.StatusNotFound, "not_found", "Patient not found.")
+		return
+	}
+
+	var input CreatePatientPersonRequest
+	if err := decodeJSONBody(r, &input); err != nil {
+		respond.Error(w, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+	normalizePatientPersonInput(&input)
+	if err := validatePatientPersonInput(input); err != nil {
+		respond.Error(w, http.StatusBadRequest, "validation_error", err.Error())
+		return
+	}
+
+	person, err := h.store.CreatePatientPerson(r.Context(), patientID, input, time.Now().UTC())
+	if err != nil {
+		if isValidationError(err) {
+			respond.Error(w, http.StatusBadRequest, "validation_error", err.Error())
+			return
+		}
+		respond.Error(w, http.StatusInternalServerError, "store_error", "Could not create patient person.")
+		return
+	}
+
+	respond.JSON(w, http.StatusCreated, person, nil)
+}
+
 func (h *Handler) UpdatePatientPerson(w http.ResponseWriter, r *http.Request) {
 	patientID := strings.TrimSpace(r.PathValue("id"))
 	personID := strings.TrimSpace(r.PathValue("personId"))
@@ -260,7 +294,8 @@ func (h *Handler) UpdatePatientPerson(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusBadRequest, "invalid_json", err.Error())
 		return
 	}
-	if err := validateUpdatePatientPersonInput(input); err != nil {
+	normalizePatientPersonInput(&input)
+	if err := validatePatientPersonInput(input); err != nil {
 		respond.Error(w, http.StatusBadRequest, "validation_error", err.Error())
 		return
 	}
@@ -300,6 +335,78 @@ func (h *Handler) ListMemoryBankEntries(w http.ResponseWriter, r *http.Request) 
 		entries = []MemoryBankEntry{}
 	}
 	respond.JSON(w, http.StatusOK, entries, map[string]any{"count": len(entries)})
+}
+
+func (h *Handler) CreateMemoryBankEntry(w http.ResponseWriter, r *http.Request) {
+	patientID := strings.TrimSpace(r.PathValue("id"))
+	if _, ok, err := h.store.GetPatient(r.Context(), patientID); err != nil {
+		respond.Error(w, http.StatusInternalServerError, "store_error", "Could not create memory bank entry.")
+		return
+	} else if !ok {
+		respond.Error(w, http.StatusNotFound, "not_found", "Patient not found.")
+		return
+	}
+
+	var input CreateMemoryBankEntryRequest
+	if err := decodeJSONBody(r, &input); err != nil {
+		respond.Error(w, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+	normalizeMemoryBankInput(&input)
+	if err := validateMemoryBankInput(input); err != nil {
+		respond.Error(w, http.StatusBadRequest, "validation_error", err.Error())
+		return
+	}
+
+	entry, err := h.store.CreateMemoryBankEntry(r.Context(), patientID, input, time.Now().UTC())
+	if err != nil {
+		if isValidationError(err) {
+			respond.Error(w, http.StatusBadRequest, "validation_error", err.Error())
+			return
+		}
+		respond.Error(w, http.StatusInternalServerError, "store_error", "Could not create memory bank entry.")
+		return
+	}
+
+	respond.JSON(w, http.StatusCreated, entry, nil)
+}
+
+func (h *Handler) UpdateMemoryBankEntry(w http.ResponseWriter, r *http.Request) {
+	patientID := strings.TrimSpace(r.PathValue("id"))
+	entryID := strings.TrimSpace(r.PathValue("entryId"))
+	if _, ok, err := h.store.GetPatient(r.Context(), patientID); err != nil {
+		respond.Error(w, http.StatusInternalServerError, "store_error", "Could not update memory bank entry.")
+		return
+	} else if !ok {
+		respond.Error(w, http.StatusNotFound, "not_found", "Patient not found.")
+		return
+	}
+
+	var input UpdateMemoryBankEntryRequest
+	if err := decodeJSONBody(r, &input); err != nil {
+		respond.Error(w, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+	normalizeMemoryBankInput(&input)
+	if err := validateMemoryBankInput(input); err != nil {
+		respond.Error(w, http.StatusBadRequest, "validation_error", err.Error())
+		return
+	}
+
+	entry, err := h.store.UpdateMemoryBankEntry(r.Context(), patientID, entryID, input, time.Now().UTC())
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrMemoryBankEntryNotFound):
+			respond.Error(w, http.StatusNotFound, "not_found", "Memory bank entry not found.")
+		case isValidationError(err):
+			respond.Error(w, http.StatusBadRequest, "validation_error", err.Error())
+		default:
+			respond.Error(w, http.StatusInternalServerError, "store_error", "Could not update memory bank entry.")
+		}
+		return
+	}
+
+	respond.JSON(w, http.StatusOK, entry, nil)
 }
 
 func (h *Handler) ListPatientReminders(w http.ResponseWriter, r *http.Request) {
@@ -696,10 +803,13 @@ func validatePatientInput(input CreatePatientRequest) error {
 	if _, err := time.LoadLocation(strings.TrimSpace(input.Timezone)); err != nil {
 		return errors.New("timezone must be a valid IANA timezone")
 	}
+	if err := validateProfilePhotoDataURL(input.ProfilePhotoDataURL); err != nil {
+		return err
+	}
 	return nil
 }
 
-func validateUpdatePatientPersonInput(input UpdatePatientPersonRequest) error {
+func validatePatientPersonInput(input UpdatePatientPersonRequest) error {
 	if strings.TrimSpace(input.Name) == "" {
 		return newValidationError("name is required")
 	}
@@ -708,6 +818,72 @@ func validateUpdatePatientPersonInput(input UpdatePatientPersonRequest) error {
 	}
 	if !contains([]string{RelationshipQualityCloseActive, RelationshipQualityUnclear, RelationshipQualityEstranged, RelationshipQualityUnknown}, strings.TrimSpace(input.RelationshipQuality)) {
 		return newValidationError("relationshipQuality must be close_active, unclear, estranged, or unknown")
+	}
+	return nil
+}
+
+func normalizePatientPersonInput(input *UpdatePatientPersonRequest) {
+	if input == nil {
+		return
+	}
+	input.Name = strings.TrimSpace(input.Name)
+	input.Relationship = strings.TrimSpace(input.Relationship)
+	input.Context = strings.TrimSpace(input.Context)
+	input.Notes = strings.TrimSpace(input.Notes)
+	input.Status = strings.TrimSpace(input.Status)
+	if input.Status == "" {
+		input.Status = PersonStatusUnknown
+	}
+	input.RelationshipQuality = strings.TrimSpace(input.RelationshipQuality)
+	if input.RelationshipQuality == "" {
+		input.RelationshipQuality = RelationshipQualityUnknown
+	}
+}
+
+func normalizeMemoryBankInput(input *CreateMemoryBankEntryRequest) {
+	if input == nil {
+		return
+	}
+	input.Topic = strings.TrimSpace(input.Topic)
+	input.Summary = strings.TrimSpace(input.Summary)
+	input.EmotionalTone = strings.TrimSpace(input.EmotionalTone)
+	input.AnchorType = strings.TrimSpace(input.AnchorType)
+	if input.AnchorType == "" {
+		input.AnchorType = AnchorTypeNone
+	}
+	input.AnchorDetail = strings.TrimSpace(input.AnchorDetail)
+	input.SuggestedFollowUp = strings.TrimSpace(input.SuggestedFollowUp)
+}
+
+func validateMemoryBankInput(input CreateMemoryBankEntryRequest) error {
+	if strings.TrimSpace(input.Topic) == "" {
+		return newValidationError("topic is required")
+	}
+	if strings.TrimSpace(input.Summary) == "" {
+		return newValidationError("summary is required")
+	}
+	if !contains(validAnchorTypes(), input.AnchorType) {
+		return newValidationError("anchorType must be call, music, show_film, journal, or none")
+	}
+	if input.AnchorAccepted && !input.AnchorOffered {
+		return newValidationError("anchorAccepted cannot be true when anchorOffered is false")
+	}
+	if input.AnchorAccepted && input.AnchorType == AnchorTypeNone {
+		return newValidationError("anchorType must not be none when anchorAccepted is true")
+	}
+	return nil
+}
+
+func validateProfilePhotoDataURL(profilePhotoDataURL string) error {
+	normalized := strings.TrimSpace(profilePhotoDataURL)
+	if normalized == "" {
+		return nil
+	}
+	if len(normalized) > 2_000_000 {
+		return errors.New("profilePhotoDataUrl is too large")
+	}
+	if !strings.HasPrefix(normalized, "data:image/") || !strings.Contains(normalized, ";base64,") {
+		return errors.New("profilePhotoDataUrl must be a base64-encoded image data URL")
 	}
 	return nil
 }

@@ -1,11 +1,11 @@
-name: nova-echoes
+name: tether
 
 services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-nova_echoes}
+      POSTGRES_DB: ${POSTGRES_DB:-tether}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     ports:
@@ -16,7 +16,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-nova_echoes}"
+          "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-tether}"
         ]
       interval: 5s
       timeout: 5s
@@ -29,12 +29,12 @@ services:
       target: dev
     restart: unless-stopped
     environment:
-      APP_NAME: ${APP_NAME:-Nova Echoes}
+      APP_NAME: ${APP_NAME:-Tether}
       APP_ENV: docker
       API_PORT: 8080
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:5173}
       ALLOWED_FRONTEND_ORIGINS: ${ALLOWED_FRONTEND_ORIGINS:-http://localhost:5173,http://localhost:5174}
-      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-nova_echoes}?sslmode=disable
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-tether}?sslmode=disable
       VOICE_LAB_EXPORT_DIR: ${VOICE_LAB_EXPORT_DIR:-/workspace/apps/api/testdata/voice-lab}
       AUTH_MODE: ${AUTH_MODE:-off}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:-dev-key-change-me}
@@ -71,7 +71,7 @@ services:
     restart: unless-stopped
     environment:
       VITE_API_BASE_URL: http://localhost:8080
-      VITE_APP_NAME: ${VITE_APP_NAME:-Nova Echoes}
+      VITE_APP_NAME: ${VITE_APP_NAME:-Tether}
     ports:
       - "5173:5173"
     volumes:
@@ -91,7 +91,7 @@ services:
     restart: unless-stopped
     environment:
       VITE_API_BASE_URL: http://localhost:8080
-      VITE_APP_NAME: ${VITE_APP_NAME:-Nova Echoes Prompt Lab}
+      VITE_APP_NAME: ${VITE_APP_NAME:-Tether Prompt Lab}
     ports:
       - "5174:5174"
     volumes:

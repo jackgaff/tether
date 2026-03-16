@@ -19,14 +19,14 @@ WORKDIR /workspace
 COPY apps/api /workspace/apps/api
 
 RUN cd /workspace/apps/api && \
-    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /out/nova-echoes-api ./cmd/server
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /out/tether-api ./cmd/server
 
 FROM gcr.io/distroless/base-debian12:nonroot AS runtime
 
 WORKDIR /app
 
-COPY --from=build /out/nova-echoes-api /app/nova-echoes-api
+COPY --from=build /out/tether-api /app/tether-api
 
 EXPOSE 8080
 
-ENTRYPOINT ["/app/nova-echoes-api"]
+ENTRYPOINT ["/app/tether-api"]

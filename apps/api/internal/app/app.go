@@ -8,16 +8,16 @@ import (
 
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
-	"nova-echoes/api/db"
-	"nova-echoes/api/internal/adminsession"
-	"nova-echoes/api/internal/config"
-	"nova-echoes/api/internal/httpserver"
-	"nova-echoes/api/internal/modules/admin"
-	"nova-echoes/api/internal/modules/checkins"
-	"nova-echoes/api/internal/modules/patients/preferences"
-	"nova-echoes/api/internal/modules/voice"
-	"nova-echoes/api/internal/modules/voicecatalog"
-	"nova-echoes/api/internal/prompts"
+	"tether/api/db"
+	"tether/api/internal/adminsession"
+	"tether/api/internal/config"
+	"tether/api/internal/httpserver"
+	"tether/api/internal/modules/admin"
+	"tether/api/internal/modules/checkins"
+	"tether/api/internal/modules/patients/preferences"
+	"tether/api/internal/modules/voice"
+	"tether/api/internal/modules/voicecatalog"
+	"tether/api/internal/prompts"
 )
 
 type App struct {

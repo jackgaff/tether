@@ -16,16 +16,16 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"nova-echoes/api/db"
-	"nova-echoes/api/internal/adminsession"
-	"nova-echoes/api/internal/config"
-	"nova-echoes/api/internal/httpserver"
-	"nova-echoes/api/internal/modules/admin"
-	"nova-echoes/api/internal/modules/checkins"
-	"nova-echoes/api/internal/modules/patients/preferences"
-	"nova-echoes/api/internal/modules/voice"
-	"nova-echoes/api/internal/modules/voicecatalog"
-	"nova-echoes/api/internal/prompts"
+	"tether/api/db"
+	"tether/api/internal/adminsession"
+	"tether/api/internal/config"
+	"tether/api/internal/httpserver"
+	"tether/api/internal/modules/admin"
+	"tether/api/internal/modules/checkins"
+	"tether/api/internal/modules/patients/preferences"
+	"tether/api/internal/modules/voice"
+	"tether/api/internal/modules/voicecatalog"
+	"tether/api/internal/prompts"
 )
 
 func TestAdminCaregiverFlowWithVoiceLifecycleAndAnalysis(t *testing.T) {
@@ -49,7 +49,7 @@ func TestAdminCaregiverFlowWithVoiceLifecycleAndAnalysis(t *testing.T) {
 	}
 
 	cfg := config.Config{
-		AppName:                    "Nova Echoes",
+		AppName:                    "Tether",
 		AppEnv:                     "test",
 		FrontendOrigin:             "http://localhost:5173",
 		AllowedFrontendOrigins:     []string{"http://localhost:5173"},
@@ -116,16 +116,20 @@ func TestAdminCaregiverFlowWithVoiceLifecycleAndAnalysis(t *testing.T) {
 
 	var patient admin.Patient
 	doJSON(t, client, http.MethodPost, server.URL+"/api/v1/admin/patients", map[string]any{
-		"primaryCaregiverId": caregiver.ID,
-		"displayName":        "Eleanor Carter",
-		"preferredName":      "Ellie",
-		"phoneE164":          "+15557654321",
-		"timezone":           "America/Detroit",
-		"routineAnchors":     []string{"breakfast", "medication card"},
-		"favoriteTopics":     []string{"gardening"},
-		"calmingCues":        []string{"slow breathing"},
-		"topicsToAvoid":      []string{"driving"},
+		"primaryCaregiverId":  caregiver.ID,
+		"displayName":         "Eleanor Carter",
+		"preferredName":       "Ellie",
+		"phoneE164":           "+15557654321",
+		"timezone":            "America/Detroit",
+		"profilePhotoDataUrl": "data:image/png;base64,aGVsbG8=",
+		"routineAnchors":      []string{"breakfast", "medication card"},
+		"favoriteTopics":      []string{"gardening"},
+		"calmingCues":         []string{"slow breathing"},
+		"topicsToAvoid":       []string{"driving"},
 	}, http.StatusCreated, &patient)
+	if patient.ProfilePhotoDataURL == "" {
+		t.Fatal("expected patient profile photo to persist")
+	}
 
 	assertStatus(t, client, http.MethodPost, server.URL+"/api/v1/admin/patients/"+patient.ID+"/calls", map[string]any{
 		"callType": "check_in",
@@ -271,6 +275,20 @@ func TestAdminCaregiverFlowWithVoiceLifecycleAndAnalysis(t *testing.T) {
 		t.Fatal("expected patient people from check-in analysis")
 	}
 
+	var manualPerson admin.PatientPerson
+	doJSON(t, client, http.MethodPost, server.URL+"/api/v1/admin/patients/"+patient.ID+"/people", map[string]any{
+		"name":         "Nora Carter",
+		"relationship": "neighbor",
+		"context":      "Brings over soup on weekends.",
+		"notes":        "Caregiver-confirmed local support.",
+	}, http.StatusCreated, &manualPerson)
+	if manualPerson.Status != admin.PersonStatusUnknown {
+		t.Fatalf("expected default person status unknown, got %q", manualPerson.Status)
+	}
+	if manualPerson.SafeToSuggestCall {
+		t.Fatal("expected manual person to remain unsafe until relationship is verified")
+	}
+
 	var reminders []admin.Reminder
 	doJSON(t, client, http.MethodGet, server.URL+"/api/v1/admin/patients/"+patient.ID+"/reminders", nil, http.StatusOK, &reminders)
 	if len(reminders) == 0 {
@@ -301,6 +319,43 @@ func TestAdminCaregiverFlowWithVoiceLifecycleAndAnalysis(t *testing.T) {
 		t.Fatal("expected memory bank entry from reminiscence analysis")
 	}
 
+	var updatedMemoryEntry admin.MemoryBankEntry
+	doJSON(t, client, http.MethodPut, server.URL+"/api/v1/admin/patients/"+patient.ID+"/memory-bank/"+memoryBank[0].ID, map[string]any{
+		"topic":             "Sunday baking with family",
+		"summary":           "Caregiver clarified this is a calming and joyful memory thread.",
+		"emotionalTone":     "warm",
+		"respondedWellTo":   []string{"Family kitchen", "Baking stories"},
+		"anchorOffered":     true,
+		"anchorType":        "journal",
+		"anchorAccepted":    false,
+		"anchorDetail":      "",
+		"suggestedFollowUp": "Bring up favorite family recipes next week.",
+		"personIds":         []string{manualPerson.ID},
+	}, http.StatusOK, &updatedMemoryEntry)
+	if updatedMemoryEntry.Topic != "Sunday baking with family" {
+		t.Fatalf("expected memory-bank entry topic update, got %q", updatedMemoryEntry.Topic)
+	}
+
+	var manualMemoryEntry admin.MemoryBankEntry
+	doJSON(t, client, http.MethodPost, server.URL+"/api/v1/admin/patients/"+patient.ID+"/memory-bank", map[string]any{
+		"topic":             "Photo album ritual",
+		"summary":           "Caregiver notes that looking at old photos helps orientation and mood.",
+		"emotionalTone":     "calm",
+		"respondedWellTo":   []string{"Family albums"},
+		"anchorOffered":     true,
+		"anchorType":        "journal",
+		"anchorAccepted":    true,
+		"anchorDetail":      "Set aside 15 minutes after dinner for photos.",
+		"suggestedFollowUp": "Ask about one album next call.",
+		"personIds":         []string{manualPerson.ID},
+	}, http.StatusCreated, &manualMemoryEntry)
+	if manualMemoryEntry.CreatedBy != admin.ReminderCreatedByAdmin {
+		t.Fatalf("expected admin-created memory entry, got createdBy=%q", manualMemoryEntry.CreatedBy)
+	}
+	if manualMemoryEntry.SourceCallRunID != "" || manualMemoryEntry.SourceAnalysisResultID != "" {
+		t.Fatalf("expected admin-created memory entry without analysis source, got %+v", manualMemoryEntry)
+	}
+
 	var refreshedPatient admin.Patient
 	doJSON(t, client, http.MethodGet, server.URL+"/api/v1/admin/patients/"+patient.ID, nil, http.StatusOK, &refreshedPatient)
 	if !containsString(refreshedPatient.MemoryProfile.Likes, "Family stories") {
@@ -318,6 +373,9 @@ func TestAdminCaregiverFlowWithVoiceLifecycleAndAnalysis(t *testing.T) {
 	}
 	if len(dashboard.PatientPeople) == 0 {
 		t.Fatal("expected patient people in dashboard")
+	}
+	if !containsMemoryTopic(dashboard.RecentMemoryBankEntries, "Photo album ritual") {
+		t.Fatal("expected manually added memory-bank entry in dashboard snapshot")
 	}
 
 	var updatedPerson admin.PatientPerson
@@ -381,6 +439,15 @@ func containsString(values []string, target string) bool {
 func containsFamilyMember(values []admin.FamilyMember, name string) bool {
 	for _, value := range values {
 		if value.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func containsMemoryTopic(values []admin.MemoryBankEntry, topic string) bool {
+	for _, value := range values {
+		if value.Topic == topic {
 			return true
 		}
 	}
@@ -463,15 +530,15 @@ func (staticAnalysisRunner) Analyze(_ context.Context, promptContext admin.Analy
 			Goal:         "Follow up on the patient's day and comfort.",
 		},
 		CheckIn: &admin.CheckInAnalysis{
-			OrientationStatus:         admin.OrientationStatusOriented,
-			OrientationNotes:          "Comfortably oriented during the call.",
-			MealsStatus:               admin.CheckInCaptureReported,
-			MealsDetail:               "Breakfast was mentioned.",
-			FluidsStatus:              admin.CheckInCaptureReported,
-			FluidsDetail:              "Had tea this morning.",
-			ActivityDetail:            "Shared a brief update about the day.",
-			SocialContact:             admin.SocialContactYes,
-			SocialContactDetail:       "Spoke with Echo.",
+			OrientationStatus:   admin.OrientationStatusOriented,
+			OrientationNotes:    "Comfortably oriented during the call.",
+			MealsStatus:         admin.CheckInCaptureReported,
+			MealsDetail:         "Breakfast was mentioned.",
+			FluidsStatus:        admin.CheckInCaptureReported,
+			FluidsDetail:        "Had tea this morning.",
+			ActivityDetail:      "Shared a brief update about the day.",
+			SocialContact:       admin.SocialContactYes,
+			SocialContactDetail: "Spoke with Echo.",
 			MentionedPeople: []admin.MentionedPerson{
 				{Name: "Sam", Relationship: "neighbor", Context: "Patient mentioned wanting to catch up soon."},
 			},

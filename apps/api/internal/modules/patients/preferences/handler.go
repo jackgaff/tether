@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strings"
 
-	"nova-echoes/api/internal/httpserver/respond"
-	"nova-echoes/api/internal/modules/voicecatalog"
+	"tether/api/internal/httpserver/respond"
+	"tether/api/internal/modules/voicecatalog"
 )
 
 type Handler struct {

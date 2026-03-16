@@ -88,6 +88,7 @@ func (w *AnalysisWorker) ProcessOnce(ctx context.Context) (bool, error) {
 		_ = w.store.MarkAnalysisJobFailed(ctx, job.ID, err.Error(), w.now())
 		return true, nil
 	}
+	normalizeAnalysisPayload(&payload)
 
 	if err := validateAnalysisPayload(promptContext.CallRun.CallType, payload); err != nil {
 		_ = w.store.MarkAnalysisJobFailed(ctx, job.ID, err.Error(), w.now())

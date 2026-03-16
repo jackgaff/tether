@@ -16,9 +16,9 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"nova-echoes/api/internal/config"
-	"nova-echoes/api/internal/modules/patients/preferences"
-	"nova-echoes/api/internal/modules/voicecatalog"
+	"tether/api/internal/config"
+	"tether/api/internal/modules/patients/preferences"
+	"tether/api/internal/modules/voicecatalog"
 )
 
 func TestCreateSessionUsesPatientPreferenceWhenVoiceNotProvided(t *testing.T) {
@@ -458,7 +458,7 @@ func newTestService(t *testing.T) *Service {
 	t.Helper()
 
 	cfg := config.Config{
-		AppName:                    "Nova Echoes",
+		AppName:                    "Tether",
 		AppEnv:                     "test",
 		FrontendOrigin:             "http://localhost:5173",
 		AllowedFrontendOrigins:     []string{"http://localhost:5173"},

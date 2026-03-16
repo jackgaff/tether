@@ -115,8 +115,8 @@ Server to client JSON:
   "stopReason": "END_TURN",
   "endedAt": "2026-03-08T16:56:12Z",
   "artifacts": {
-    "jsonPath": "/Users/jackg/hack/nova-echoes/apps/api/testdata/voice-lab/0195f0dc-0f1e-7ca3-a739-f8c6f95e0421.json",
-    "markdownPath": "/Users/jackg/hack/nova-echoes/apps/api/testdata/voice-lab/0195f0dc-0f1e-7ca3-a739-f8c6f95e0421.md"
+    "jsonPath": "/Users/jackg/hack/tether/apps/api/testdata/voice-lab/0195f0dc-0f1e-7ca3-a739-f8c6f95e0421.json",
+    "markdownPath": "/Users/jackg/hack/tether/apps/api/testdata/voice-lab/0195f0dc-0f1e-7ca3-a739-f8c6f95e0421.md"
   }
 }
 ```

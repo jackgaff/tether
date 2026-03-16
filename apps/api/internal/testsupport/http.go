@@ -8,12 +8,12 @@ import (
 	"sync"
 	"time"
 
-	"nova-echoes/api/internal/config"
-	"nova-echoes/api/internal/httpserver"
-	"nova-echoes/api/internal/modules/checkins"
-	"nova-echoes/api/internal/modules/patients/preferences"
-	"nova-echoes/api/internal/modules/voice"
-	"nova-echoes/api/internal/modules/voicecatalog"
+	"tether/api/internal/config"
+	"tether/api/internal/httpserver"
+	"tether/api/internal/modules/checkins"
+	"tether/api/internal/modules/patients/preferences"
+	"tether/api/internal/modules/voice"
+	"tether/api/internal/modules/voicecatalog"
 )
 
 func NewHandler(cfg config.Config) http.Handler {

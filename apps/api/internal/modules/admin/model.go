@@ -237,6 +237,7 @@ type Patient struct {
 	PhoneE164            string               `json:"phoneE164,omitempty"`
 	Timezone             string               `json:"timezone"`
 	Notes                string               `json:"notes,omitempty"`
+	ProfilePhotoDataURL  string               `json:"profilePhotoDataUrl,omitempty"`
 	CallingState         string               `json:"callingState"`
 	PauseReason          string               `json:"pauseReason,omitempty"`
 	PausedAt             *time.Time           `json:"pausedAt,omitempty"`
@@ -376,28 +377,28 @@ type ReminderNote struct {
 }
 
 type CheckInAnalysis struct {
-	OrientationStatus         string         `json:"orientationStatus"`
-	OrientationNotes          string         `json:"orientationNotes,omitempty"`
-	MealsStatus               string         `json:"mealsStatus"`
-	MealsDetail               string         `json:"mealsDetail,omitempty"`
-	FluidsStatus              string         `json:"fluidsStatus"`
-	FluidsDetail              string         `json:"fluidsDetail,omitempty"`
-	ActivityDetail            string         `json:"activityDetail,omitempty"`
-	SocialContact             string         `json:"socialContact"`
-	SocialContactDetail       string         `json:"socialContactDetail,omitempty"`
+	OrientationStatus         string            `json:"orientationStatus"`
+	OrientationNotes          string            `json:"orientationNotes,omitempty"`
+	MealsStatus               string            `json:"mealsStatus"`
+	MealsDetail               string            `json:"mealsDetail,omitempty"`
+	FluidsStatus              string            `json:"fluidsStatus"`
+	FluidsDetail              string            `json:"fluidsDetail,omitempty"`
+	ActivityDetail            string            `json:"activityDetail,omitempty"`
+	SocialContact             string            `json:"socialContact"`
+	SocialContactDetail       string            `json:"socialContactDetail,omitempty"`
 	MentionedPeople           []MentionedPerson `json:"mentionedPeople"`
-	RemindersNoted            []ReminderNote `json:"remindersNoted"`
-	ReminderDeclined          bool           `json:"reminderDeclined"`
-	ReminderDeclinedTopic     string         `json:"reminderDeclinedTopic,omitempty"`
-	Mood                      string         `json:"mood"`
-	MoodNotes                 string         `json:"moodNotes,omitempty"`
-	Sleep                     string         `json:"sleep"`
-	SleepNotes                string         `json:"sleepNotes,omitempty"`
-	MemoryFlags               []string       `json:"memoryFlags"`
-	DeliriumWatch             bool           `json:"deliriumWatch"`
-	DeliriumWatchNotes        string         `json:"deliriumWatchNotes,omitempty"`
-	DeliriumPotentialTriggers []string       `json:"deliriumPotentialTriggers"`
-	CaregiverSummary          string         `json:"caregiverSummary,omitempty"`
+	RemindersNoted            []ReminderNote    `json:"remindersNoted"`
+	ReminderDeclined          bool              `json:"reminderDeclined"`
+	ReminderDeclinedTopic     string            `json:"reminderDeclinedTopic,omitempty"`
+	Mood                      string            `json:"mood"`
+	MoodNotes                 string            `json:"moodNotes,omitempty"`
+	Sleep                     string            `json:"sleep"`
+	SleepNotes                string            `json:"sleepNotes,omitempty"`
+	MemoryFlags               []string          `json:"memoryFlags"`
+	DeliriumWatch             bool              `json:"deliriumWatch"`
+	DeliriumWatchNotes        string            `json:"deliriumWatchNotes,omitempty"`
+	DeliriumPotentialTriggers []string          `json:"deliriumPotentialTriggers"`
+	CaregiverSummary          string            `json:"caregiverSummary,omitempty"`
 }
 
 type MentionedPerson struct {
@@ -558,14 +559,18 @@ type UpdatePatientPersonRequest struct {
 	Relationship        string `json:"relationship"`
 	Status              string `json:"status"`
 	RelationshipQuality string `json:"relationshipQuality"`
+	Context             string `json:"context"`
 	Notes               string `json:"notes"`
 }
+
+type CreatePatientPersonRequest = UpdatePatientPersonRequest
 
 type MemoryBankEntry struct {
 	ID                     string          `json:"id"`
 	PatientID              string          `json:"patientId"`
-	SourceCallRunID        string          `json:"sourceCallRunId"`
-	SourceAnalysisResultID string          `json:"sourceAnalysisResultId"`
+	SourceCallRunID        string          `json:"sourceCallRunId,omitempty"`
+	SourceAnalysisResultID string          `json:"sourceAnalysisResultId,omitempty"`
+	CreatedBy              string          `json:"createdBy"`
 	Topic                  string          `json:"topic"`
 	Summary                string          `json:"summary"`
 	EmotionalTone          string          `json:"emotionalTone,omitempty"`
@@ -580,6 +585,22 @@ type MemoryBankEntry struct {
 	CreatedAt              time.Time       `json:"createdAt"`
 	UpdatedAt              time.Time       `json:"updatedAt"`
 }
+
+type CreateMemoryBankEntryRequest struct {
+	Topic             string     `json:"topic"`
+	Summary           string     `json:"summary"`
+	EmotionalTone     string     `json:"emotionalTone"`
+	RespondedWellTo   []string   `json:"respondedWellTo"`
+	AnchorOffered     bool       `json:"anchorOffered"`
+	AnchorType        string     `json:"anchorType"`
+	AnchorAccepted    bool       `json:"anchorAccepted"`
+	AnchorDetail      string     `json:"anchorDetail"`
+	SuggestedFollowUp string     `json:"suggestedFollowUp"`
+	OccurredAt        *time.Time `json:"occurredAt"`
+	PersonIDs         []string   `json:"personIds"`
+}
+
+type UpdateMemoryBankEntryRequest = CreateMemoryBankEntryRequest
 
 type Reminder struct {
 	ID                           string         `json:"id"`
@@ -615,6 +636,7 @@ type CreatePatientRequest struct {
 	PhoneE164            string               `json:"phoneE164"`
 	Timezone             string               `json:"timezone"`
 	Notes                string               `json:"notes"`
+	ProfilePhotoDataURL  string               `json:"profilePhotoDataUrl"`
 	RoutineAnchors       []string             `json:"routineAnchors"`
 	FavoriteTopics       []string             `json:"favoriteTopics"`
 	CalmingCues          []string             `json:"calmingCues"`

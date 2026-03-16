@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"time"
 
-	"nova-echoes/api/internal/config"
-	"nova-echoes/api/internal/httpserver/respond"
+	"tether/api/internal/config"
+	"tether/api/internal/httpserver/respond"
 )
 
 func NewHandler(cfg config.Config) http.Handler {

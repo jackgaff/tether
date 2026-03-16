@@ -14,10 +14,10 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"nova-echoes/api/internal/config"
-	"nova-echoes/api/internal/idgen"
-	"nova-echoes/api/internal/modules/patients/preferences"
-	"nova-echoes/api/internal/modules/voicecatalog"
+	"tether/api/internal/config"
+	"tether/api/internal/idgen"
+	"tether/api/internal/modules/patients/preferences"
+	"tether/api/internal/modules/voicecatalog"
 )
 
 var (

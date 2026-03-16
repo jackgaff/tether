@@ -1,4 +1,4 @@
-# Nova Echoes
+# Tether
 
 Hackathon app for a caregiver-controlled voice companion that places short,
 structured check-in calls, captures transcripts, runs post-call analysis, and
@@ -224,7 +224,7 @@ That currently does:
 For the Postgres-backed API integration suite, run:
 
 ```bash
-TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5433/nova_echoes?sslmode=disable bun run test:api:integration
+TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5433/tether?sslmode=disable bun run test:api:integration
 ```
 
 CI lives at `.github/workflows/ci.yml` and runs on pushes to `main`, pull

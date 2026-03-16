@@ -1,42 +1,47 @@
-import { useState, useEffect, useCallback } from "react";
-import { Radio, UserPlus, LogOut } from "lucide-react";
+import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { LogOut, Radio, UserPlus } from "lucide-react";
 import { Sidebar } from "./components/Sidebar";
+import { Avatar } from "./components/Avatar";
 import { Dashboard } from "./pages/Dashboard";
 import { ScheduleCall } from "./pages/ScheduleCall";
 import { RecentCalls } from "./pages/RecentCalls";
 import { CreatePatient } from "./pages/CreatePatient";
+import { PatientSettings } from "./pages/PatientSettings";
 import {
   createCaregiver,
   getAdminSession,
-  loginAdmin,
   getDashboard,
   listCaregivers,
-  listPatients
+  listPatients,
+  loginAdmin,
+  updateCaregiver,
+  updatePatient
 } from "./api/admin";
 import { useStoredString } from "./app/storage";
 import { STORAGE_KEYS } from "./app/constants";
-import type { AdminSession, DashboardSnapshot, Patient } from "./api/contracts";
+import type {
+  AdminSession,
+  CaregiverInput,
+  DashboardSnapshot,
+  Patient,
+  PatientInput
+} from "./api/contracts";
 
-export type Page = "dashboard" | "schedule-call" | "recent-calls";
-
-// Screens outside the main console
+export type Page = "dashboard" | "schedule-call" | "recent-calls" | "settings";
 type PreConsoleScreen = "picker" | "create-patient";
 
 export default function App() {
   const [currentPage, setCurrentPage] = useState<Page>("dashboard");
   const [collapsed, setCollapsed] = useState(false);
 
-  // Auth
   const [session, setSession] = useState<AdminSession | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [loginForm, setLoginForm] = useState({ username: "", password: "" });
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
-  // Pre-console screen
   const [preScreen, setPreScreen] = useState<PreConsoleScreen>("picker");
 
-  // Patient selection
   const [patientId, setPatientId] = useStoredString(STORAGE_KEYS.patientId);
   const [caregiverId, setCaregiverId] = useStoredString(STORAGE_KEYS.caregiverId);
   const [patientList, setPatientList] = useState<Patient[]>([]);
@@ -44,10 +49,40 @@ export default function App() {
   const [caregiverBootstrapError, setCaregiverBootstrapError] = useState<string | null>(null);
   const [caregiverBootstrapState, setCaregiverBootstrapState] = useState<"idle" | "running" | "ready" | "failed">("idle");
 
-  // Dashboard data
   const [dashboard, setDashboard] = useState<DashboardSnapshot | null>(null);
   const [dashboardError, setDashboardError] = useState<string | null>(null);
   const [isDashboardLoading, setIsDashboardLoading] = useState(false);
+
+  const loadPatients = useCallback(async () => {
+    setPatientListLoading(true);
+    try {
+      const patients = await listPatients();
+      setPatientList(patients);
+    } catch {
+      setPatientList([]);
+    } finally {
+      setPatientListLoading(false);
+    }
+  }, []);
+
+  const fetchDashboard = useCallback(
+    async (pid: string) => {
+      setIsDashboardLoading(true);
+      setDashboardError(null);
+      try {
+        const data = await getDashboard(pid);
+        setDashboard(data);
+        if (data.caregiver?.id) {
+          setCaregiverId(data.caregiver.id);
+        }
+      } catch (error) {
+        setDashboardError(error instanceof Error ? error.message : "Failed to load dashboard");
+      } finally {
+        setIsDashboardLoading(false);
+      }
+    },
+    [setCaregiverId]
+  );
 
   useEffect(() => {
     getAdminSession()
@@ -57,13 +92,11 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!session) return;
-    setPatientListLoading(true);
-    listPatients()
-      .then(setPatientList)
-      .catch(() => setPatientList([]))
-      .finally(() => setPatientListLoading(false));
-  }, [session]);
+    if (!session) {
+      return;
+    }
+    void loadPatients();
+  }, [session, loadPatients]);
 
   useEffect(() => {
     if (!session || patientListLoading || caregiverBootstrapState !== "idle") {
@@ -79,15 +112,16 @@ export default function App() {
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "") || "demo-admin";
-    const caregiverEmail = `${usernameSlug}@local.nova-echoes.test`;
+    const caregiverEmail = `${usernameSlug}@local.tether.test`;
 
-    const caregiverInput = {
-      displayName: session.username
-        .trim()
-        .split(/[\s-_]+/)
-        .filter(Boolean)
-        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-        .join(" ") || "Demo Caregiver",
+    const caregiverInput: CaregiverInput = {
+      displayName:
+        session.username
+          .trim()
+          .split(/[\s-_]+/)
+          .filter(Boolean)
+          .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+          .join(" ") || "Demo Caregiver",
       email: caregiverEmail,
       phoneE164: "",
       timezone
@@ -103,7 +137,7 @@ export default function App() {
         }
         if (storedCaregiver) {
           setCaregiverBootstrapState("ready");
-          return null;
+          return;
         }
 
         const matchingCaregiver = caregivers.find(
@@ -112,33 +146,38 @@ export default function App() {
         if (matchingCaregiver) {
           setCaregiverId(matchingCaregiver.id);
           setCaregiverBootstrapState("ready");
-          return null;
+          return;
         }
         if (patientList.length > 0) {
           setCaregiverBootstrapState("failed");
           setCaregiverBootstrapError(
             "Select an existing patient to load its caregiver profile for this demo."
           );
-          return null;
+          return;
         }
         return createCaregiver(caregiverInput).then((caregiver) => {
           setCaregiverId(caregiver.id);
           setCaregiverBootstrapState("ready");
-          return caregiver;
         });
       })
-      .catch((err: any) => {
+      .catch((error) => {
         setCaregiverBootstrapState("failed");
-        setCaregiverBootstrapError(err?.message ?? "Could not prepare the caregiver profile.");
+        setCaregiverBootstrapError(
+          error instanceof Error ? error.message : "Could not prepare the caregiver profile."
+        );
       });
-  }, [session, caregiverId, patientListLoading, patientList.length, caregiverBootstrapState, setCaregiverId]);
+  }, [session, caregiverId, patientListLoading, caregiverBootstrapState, patientList.length, setCaregiverId]);
+
+  useEffect(() => {
+    if (session && patientId) {
+      void fetchDashboard(patientId);
+    }
+  }, [session, patientId, fetchDashboard]);
 
   const retryCaregiverBootstrap = useCallback(() => {
     setCaregiverBootstrapError(null);
     setCaregiverBootstrapState("idle");
   }, []);
-
-  const canRetryCaregiverBootstrap = caregiverBootstrapState === "failed" && patientList.length === 0;
 
   const refreshCaregiverBootstrap = useCallback(() => {
     setCaregiverId("");
@@ -146,37 +185,20 @@ export default function App() {
     setCaregiverBootstrapState("idle");
   }, [setCaregiverId]);
 
-  const fetchDashboard = useCallback(async (pid: string) => {
-    setIsDashboardLoading(true);
-    setDashboardError(null);
-    try {
-      const data = await getDashboard(pid);
-      setDashboard(data);
-      if (data.caregiver?.id) setCaregiverId(data.caregiver.id);
-    } catch (err: any) {
-      setDashboardError(err.message ?? "Failed to load dashboard");
-    } finally {
-      setIsDashboardLoading(false);
-    }
-  }, []);
+  const canRetryCaregiverBootstrap =
+    caregiverBootstrapState === "failed" && patientList.length === 0;
 
-  useEffect(() => {
-    if (session && patientId) {
-      fetchDashboard(patientId);
-    }
-  }, [session, patientId, fetchDashboard]);
-
-  async function handleLogin(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleLogin(event: FormEvent) {
+    event.preventDefault();
     setIsLoggingIn(true);
     setLoginError(null);
     try {
-      const s = await loginAdmin(loginForm);
-      setSession(s);
+      const nextSession = await loginAdmin(loginForm);
+      setSession(nextSession);
       setCaregiverBootstrapError(null);
       setCaregiverBootstrapState("idle");
-    } catch (err: any) {
-      setLoginError(err.message ?? "Login failed");
+    } catch (error) {
+      setLoginError(error instanceof Error ? error.message : "Login failed");
     } finally {
       setIsLoggingIn(false);
     }
@@ -187,66 +209,107 @@ export default function App() {
     setCurrentPage("dashboard");
   }
 
-  // ── Loading ──────────────────────────────────────────────────────
+  async function handleSavePatient(input: PatientInput) {
+    if (!patientId) {
+      throw new Error("No patient selected.");
+    }
+    const updated = await updatePatient(patientId, input);
+    setPatientList((current) => current.map((patient) => (patient.id === updated.id ? updated : patient)));
+    await fetchDashboard(patientId);
+  }
+
+  async function handleSaveCaregiver(input: CaregiverInput) {
+    const activeCaregiverId = dashboard?.caregiver.id || caregiverId;
+    if (!activeCaregiverId) {
+      throw new Error("Caregiver profile is not ready yet.");
+    }
+    await updateCaregiver(activeCaregiverId, input);
+    if (patientId) {
+      await fetchDashboard(patientId);
+    }
+  }
+
+  const currentPatient =
+    patientList.find((patient) => patient.id === patientId) ?? dashboard?.patient ?? null;
+
   if (!authChecked) {
     return (
-      <div className="flex h-screen items-center justify-center text-gray-400 text-sm">
-        Loading...
+      <div className="flex h-screen items-center justify-center text-sm text-slate-500">
+        Loading caregiver workspace...
       </div>
     );
   }
 
-  // ── Login ────────────────────────────────────────────────────────
   if (!session) {
     return (
-      <div className="flex h-screen items-center justify-center bg-[#f7f8fa]">
-        <div className="bg-white border border-gray-200 rounded-2xl p-8 w-full max-w-sm">
-          <div className="mb-6">
-            <div className="w-9 h-9 rounded-xl bg-gray-900 flex items-center justify-center mb-4">
-              <Radio size={16} className="text-white" />
+      <div className="flex min-h-screen items-center justify-center px-4 py-10">
+        <div className="app-panel grid w-full max-w-5xl overflow-hidden lg:grid-cols-[1.1fr_0.9fr]">
+          <section className="border-b border-white/70 bg-[radial-gradient(circle_at_top_left,_rgba(16,185,129,0.14),_transparent_38%),linear-gradient(180deg,_rgba(255,255,255,0.95),_rgba(245,247,250,0.88))] p-8 md:p-10 lg:border-b-0 lg:border-r">
+            <div className="mb-10 flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-950 shadow-[0_18px_35px_rgba(15,23,42,0.18)]">
+              <Radio size={18} className="text-white" />
             </div>
-            <h1 className="text-xl font-semibold text-gray-900">Nova Echoes</h1>
-            <p className="text-sm text-gray-400 mt-1">Sign in to your caregiver account</p>
-          </div>
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1.5">Username</label>
-              <input
-                type="text"
-                value={loginForm.username}
-                onChange={(e) => setLoginForm((f) => ({ ...f, username: e.target.value }))}
-                className="w-full px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"
-                autoFocus
-              />
+            <p className="eyebrow mb-2">Tether</p>
+            <h1 className="max-w-xl text-4xl font-semibold tracking-tight text-slate-950">
+              A calmer caregiver console for memory-forward check-ins
+            </h1>
+            <p className="mt-4 max-w-xl text-base leading-7 text-slate-600">
+              Review the last call, polish the memory bank, and keep patient context ready before the next conversation begins.
+            </p>
+            <div className="mt-10 grid gap-4 sm:grid-cols-3">
+              <HeroStat label="Profiles" value="Patient + caregiver" />
+              <HeroStat label="Insights" value="Call analysis" />
+              <HeroStat label="Actions" value="Memory + people edits" />
             </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1.5">Password</label>
-              <input
-                type="password"
-                value={loginForm.password}
-                onChange={(e) => setLoginForm((f) => ({ ...f, password: e.target.value }))}
-                className="w-full px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"
-              />
-            </div>
-            {loginError && <p className="text-sm text-red-600">{loginError}</p>}
-            <button
-              type="submit"
-              disabled={isLoggingIn}
-              className="w-full py-2.5 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50"
-            >
-              {isLoggingIn ? "Signing in..." : "Sign in"}
-            </button>
-          </form>
+          </section>
+          <section className="bg-white/86 p-8 md:p-10">
+            <p className="eyebrow mb-2">Sign In</p>
+            <h2 className="text-2xl font-semibold text-slate-950">Open the caregiver workspace</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-500">
+              Use the local demo credentials configured for the app. Your session stays in the browser.
+            </p>
+            <form onSubmit={handleLogin} className="mt-8 space-y-4">
+              <label className="block">
+                <span className="mb-2 block text-sm font-medium text-slate-800">Username</span>
+                <input
+                  type="text"
+                  value={loginForm.username}
+                  onChange={(event) =>
+                    setLoginForm((current) => ({ ...current, username: event.target.value }))
+                  }
+                  className={authFieldClass}
+                  autoFocus
+                />
+              </label>
+              <label className="block">
+                <span className="mb-2 block text-sm font-medium text-slate-800">Password</span>
+                <input
+                  type="password"
+                  value={loginForm.password}
+                  onChange={(event) =>
+                    setLoginForm((current) => ({ ...current, password: event.target.value }))
+                  }
+                  className={authFieldClass}
+                />
+              </label>
+              {loginError && (
+                <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                  {loginError}
+                </div>
+              )}
+              <button type="submit" disabled={isLoggingIn} className="app-btn-primary w-full justify-center">
+                {isLoggingIn ? "Signing in..." : "Sign in"}
+              </button>
+            </form>
+          </section>
         </div>
       </div>
     );
   }
 
-  // ── Patient picker / Add patient (pre-console screens) ───────────
   if (!patientId) {
     if (preScreen === "create-patient") {
       return (
-        <div className="min-h-screen bg-[#f7f8fa] overflow-y-auto">
+        <div className="min-h-screen overflow-y-auto">
           <CreatePatient
             caregiverId={caregiverId}
             caregiverBootstrapError={caregiverBootstrapError}
@@ -254,7 +317,7 @@ export default function App() {
             onRetryCaregiverBootstrap={retryCaregiverBootstrap}
             onInvalidCaregiverReference={refreshCaregiverBootstrap}
             onCreated={(patient) => {
-              setPatientList((prev) => [...prev, patient]);
+              setPatientList((current) => [...current, patient]);
               selectPatient(patient.id);
             }}
             onCancel={() => setPreScreen("picker")}
@@ -263,79 +326,98 @@ export default function App() {
       );
     }
 
-    // Patient picker
     return (
-      <div className="flex h-screen items-center justify-center bg-[#f7f8fa]">
-        <div className="bg-white border border-gray-200 rounded-2xl p-8 w-full max-w-sm">
-          <div className="w-9 h-9 rounded-xl bg-gray-900 flex items-center justify-center mb-4">
-            <Radio size={16} className="text-white" />
-          </div>
-          <h2 className="text-lg font-semibold text-gray-900 mb-1">Select a patient</h2>
-          <p className="text-sm text-gray-400 mb-6">
-            Choose the patient you'd like to manage.
-          </p>
-
-          {caregiverBootstrapError && (
-            <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              <p>{caregiverBootstrapError}</p>
-              {canRetryCaregiverBootstrap && (
-                <button
-                  type="button"
-                  onClick={retryCaregiverBootstrap}
-                  className="mt-2 text-xs font-medium text-red-700 underline underline-offset-2"
-                >
-                  Retry caregiver setup
-                </button>
+      <div className="flex min-h-screen items-center justify-center px-4 py-10">
+        <div className="app-panel w-full max-w-4xl overflow-hidden">
+          <div className="grid gap-8 p-8 md:grid-cols-[1fr_1.1fr] md:p-10">
+            <section>
+              <div className="mb-10 flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-950 shadow-[0_18px_35px_rgba(15,23,42,0.18)]">
+                <Radio size={18} className="text-white" />
+              </div>
+              <p className="eyebrow mb-2">Patient Selection</p>
+              <h2 className="text-3xl font-semibold tracking-tight text-slate-950">
+                Choose who you want to support today
+              </h2>
+              <p className="mt-4 text-sm leading-7 text-slate-500">
+                Open an existing dashboard or create a new profile with photo, memory cues, and caregiver context in one pass.
+              </p>
+              {caregiverBootstrapError && (
+                <div className="mt-6 rounded-[28px] border border-rose-200 bg-rose-50/90 px-5 py-4 text-sm text-rose-700">
+                  <p>{caregiverBootstrapError}</p>
+                  {canRetryCaregiverBootstrap && (
+                    <button
+                      type="button"
+                      onClick={retryCaregiverBootstrap}
+                      className="mt-3 font-semibold text-rose-800 underline underline-offset-4"
+                    >
+                      Retry caregiver setup
+                    </button>
+                  )}
+                </div>
               )}
-            </div>
-          )}
-
-          {patientListLoading ? (
-            <p className="text-sm text-gray-400">Loading...</p>
-          ) : (
-            <div className="space-y-2">
-              {patientList.map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => selectPatient(p.id)}
-                  className="w-full flex items-center justify-between px-4 py-3 bg-white border border-gray-200 rounded-xl hover:border-gray-900 hover:bg-gray-50 transition-colors text-left"
-                >
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">{p.displayName}</p>
-                    <p className="text-xs text-gray-400 mt-0.5">{p.phoneE164 ?? "No phone"}</p>
-                  </div>
-                  <span
-                    className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                      p.callingState === "active"
-                        ? "bg-green-50 text-green-700"
-                        : "bg-gray-100 text-gray-500"
-                    }`}
+            </section>
+            <section className="space-y-4">
+              {patientListLoading ? (
+                <div className="app-panel-muted px-5 py-6 text-sm text-slate-500">Loading patients…</div>
+              ) : (
+                <>
+                  {patientList.map((patient) => (
+                    <button
+                      key={patient.id}
+                      type="button"
+                      onClick={() => selectPatient(patient.id)}
+                      className="app-panel-muted flex w-full items-center justify-between gap-4 p-4 text-left transition-transform hover:-translate-y-0.5"
+                    >
+                      <div className="flex items-center gap-4">
+                        <Avatar
+                          name={patient.preferredName || patient.displayName}
+                          imageUrl={patient.profilePhotoDataUrl}
+                          size="md"
+                          accent="sky"
+                        />
+                        <div>
+                          <p className="text-base font-semibold text-slate-950">{patient.displayName}</p>
+                          <p className="mt-1 text-sm text-slate-500">
+                            {[patient.phoneE164, patient.timezone].filter(Boolean).join(" · ") || "No contact details yet"}
+                          </p>
+                        </div>
+                      </div>
+                      <span
+                        className={[
+                          "rounded-full px-3 py-1 text-xs font-semibold",
+                          patient.callingState === "active"
+                            ? "bg-emerald-50 text-emerald-700"
+                            : "bg-slate-100 text-slate-500"
+                        ].join(" ")}
+                      >
+                        {patient.callingState === "active" ? "Calls active" : "Paused"}
+                      </span>
+                    </button>
+                  ))}
+                  {patientList.length === 0 && (
+                    <div className="app-panel-muted px-5 py-7 text-center">
+                      <p className="text-base font-semibold text-slate-800">No patients yet</p>
+                      <p className="mt-2 text-sm text-slate-500">
+                        Start by creating a patient profile with care notes, memory cues, and a photo.
+                      </p>
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setPreScreen("create-patient")}
+                    className="app-btn-secondary w-full justify-center"
                   >
-                    {p.callingState}
-                  </span>
-                </button>
-              ))}
-
-              {patientList.length === 0 && (
-                <p className="text-sm text-gray-400 italic text-center py-2">No patients yet.</p>
+                    <UserPlus size={15} strokeWidth={2.1} />
+                    Add a new patient
+                  </button>
+                </>
               )}
-
-              <button
-                onClick={() => setPreScreen("create-patient")}
-                className="w-full flex items-center justify-center gap-2 py-2.5 border border-dashed border-gray-300 rounded-xl text-sm text-gray-500 hover:border-gray-900 hover:text-gray-900 transition-colors mt-1"
-              >
-                <UserPlus size={14} strokeWidth={2} />
-                Add a new patient
-              </button>
-            </div>
-          )}
+            </section>
+          </div>
         </div>
       </div>
     );
   }
-
-  // ── Console ──────────────────────────────────────────────────────
-  const currentPatient = patientList.find((p) => p.id === patientId);
 
   function renderPage() {
     switch (currentPage) {
@@ -346,7 +428,7 @@ export default function App() {
             dashboard={dashboard}
             isLoading={isDashboardLoading}
             error={dashboardError}
-            onRefresh={() => fetchDashboard(patientId)}
+            onRefresh={() => void fetchDashboard(patientId)}
           />
         );
       case "schedule-call":
@@ -370,39 +452,79 @@ export default function App() {
             latestAnalysis={dashboard?.latestAnalysis}
           />
         );
+      case "settings":
+        return (
+          <PatientSettings
+            patientId={patientId}
+            patient={dashboard?.patient ?? currentPatient}
+            caregiver={dashboard?.caregiver ?? null}
+            onSavePatient={handleSavePatient}
+            onSaveCaregiver={handleSaveCaregiver}
+            onRefresh={async () => {
+              await loadPatients();
+              await fetchDashboard(patientId);
+            }}
+          />
+        );
     }
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#f7f8fa]">
+    <div className="flex h-screen overflow-hidden bg-transparent">
       <Sidebar
         currentPage={currentPage}
         onNavigate={setCurrentPage}
         collapsed={collapsed}
-        onToggleCollapse={() => setCollapsed(!collapsed)}
+        onToggleCollapse={() => setCollapsed((current) => !current)}
         patientSwitcher={
           !collapsed ? (
-            <div className="px-2.5 py-2">
-              <p className="text-xs text-gray-400 truncate mb-1">
-                {currentPatient?.displayName ?? "Patient"}
-              </p>
+            <div className="flex items-center justify-between gap-3 rounded-[24px] bg-slate-50/80 p-3">
+              <div className="flex min-w-0 items-center gap-3">
+                <Avatar
+                  name={currentPatient?.preferredName || currentPatient?.displayName || "Patient"}
+                  imageUrl={currentPatient?.profilePhotoDataUrl}
+                  size="sm"
+                  accent="sage"
+                />
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-slate-900">
+                    {currentPatient?.displayName ?? "Patient"}
+                  </p>
+                  <p className="truncate text-xs text-slate-500">
+                    {currentPatient?.timezone ?? "Care profile"}
+                  </p>
+                </div>
+              </div>
               <button
+                type="button"
                 onClick={() => {
                   setPatientId("");
                   setDashboard(null);
                   setPreScreen("picker");
                   setCurrentPage("dashboard");
                 }}
-                className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-700 transition-colors"
+                className="inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium text-slate-500 transition-colors hover:bg-white hover:text-slate-900"
               >
-                <LogOut size={11} strokeWidth={2} />
-                Change patient
+                <LogOut size={12} strokeWidth={2} />
+                Change
               </button>
             </div>
           ) : undefined
         }
       />
-      <main className="flex-1 overflow-y-auto">{renderPage()}</main>
+      <main className="flex-1 overflow-y-auto bg-transparent">{renderPage()}</main>
     </div>
   );
 }
+
+function HeroStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-[22px] border border-slate-200 bg-white/86 px-4 py-3 shadow-[0_12px_24px_rgba(15,23,42,0.05)]">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">{label}</p>
+      <p className="mt-1 text-sm font-semibold text-slate-900">{value}</p>
+    </div>
+  );
+}
+
+const authFieldClass =
+  "w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-[0_10px_24px_rgba(15,23,42,0.04)] outline-none transition focus:border-slate-300 focus:ring-4 focus:ring-sky-100";

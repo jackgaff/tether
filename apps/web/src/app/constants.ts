@@ -1,7 +1,7 @@
 export const STORAGE_KEYS = {
-  caregiverId: "nova-echoes.minimal-admin.caregiver-id",
-  patientId: "nova-echoes.minimal-admin.patient-id",
-  callId: "nova-echoes.minimal-admin.call-id"
+  caregiverId: "tether.minimal-admin.caregiver-id",
+  patientId: "tether.minimal-admin.patient-id",
+  callId: "tether.minimal-admin.call-id"
 } as const;
 
 export const CALL_TYPES = [

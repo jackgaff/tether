@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"nova-echoes/api/internal/modules/voice"
-	"nova-echoes/api/internal/prompts"
+	"tether/api/internal/modules/voice"
+	"tether/api/internal/prompts"
 )
 
 type VoiceSessionCreator interface {

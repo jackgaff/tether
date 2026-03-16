@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"nova-echoes/api/internal/httpserver/respond"
+	"tether/api/internal/httpserver/respond"
 )
 
 type Handler struct {

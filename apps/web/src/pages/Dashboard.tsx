@@ -5,16 +5,14 @@ import {
   CalendarDays,
   Sparkles,
   ChevronRight,
+  Settings2,
   Star,
   Users,
   AlertTriangle,
 } from "lucide-react";
 import type { Page } from "../App";
 import type { DashboardSnapshot } from "../api/contracts";
-
-function initials(name: string) {
-  return name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
-}
+import { Avatar } from "../components/Avatar";
 
 function formatCallTime(iso?: string) {
   if (!iso) return null;
@@ -117,11 +115,28 @@ export function Dashboard({ onNavigate, dashboard, isLoading, error, onRefresh }
   const duration = formatDuration(latestCall?.startedAt, latestCall?.endedAt);
 
   return (
-    <div className="p-8">
-      <p className="text-sm text-gray-400 font-medium mb-6 tracking-widest uppercase">{today}</p>
+    <div className="app-page-enter mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-8 sm:px-6 lg:px-8">
+      <div>
+        <p className="eyebrow mb-2">Care Dashboard</p>
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h1 className="text-3xl font-semibold tracking-tight text-slate-950">
+              {patient?.preferredName || patient?.displayName || "Patient overview"}
+            </h1>
+            <p className="mt-1 text-sm text-slate-500">{today}</p>
+          </div>
+          <button
+            onClick={() => onNavigate("settings")}
+            className="app-btn-secondary"
+          >
+            <Settings2 size={16} strokeWidth={2.1} />
+            Edit profile and memory
+          </button>
+        </div>
+      </div>
 
       {urgentFlags.length > 0 && (
-        <div className="mb-4 flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl p-4">
+        <div className="flex items-start gap-3 rounded-[28px] border border-red-200 bg-red-50/90 p-4 shadow-[0_18px_36px_rgba(239,68,68,0.12)]">
           <AlertTriangle size={15} className="text-red-500 flex-shrink-0 mt-0.5" strokeWidth={2} />
           <div>
             <p className="text-sm font-medium text-red-800">Urgent flag from last call</p>
@@ -132,45 +147,54 @@ export function Dashboard({ onNavigate, dashboard, isLoading, error, onRefresh }
         </div>
       )}
 
-      <div className="grid grid-cols-5 gap-4 items-start">
+      <div className="grid items-start gap-4 xl:grid-cols-5">
         {/* ── Left column (3/5) ── */}
-        <div className="col-span-3 flex flex-col gap-4">
+        <div className="flex flex-col gap-4 xl:col-span-3">
           {/* Patient hero */}
-          <div className="bg-white border border-gray-200 rounded-2xl p-6 flex items-center gap-5">
+          <div className="app-panel flex flex-col gap-5 overflow-hidden p-6 lg:flex-row lg:items-center">
             <div className="relative flex-shrink-0">
-              <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center ring-4 ring-green-200">
-                <span className="text-xl font-semibold text-gray-500">
-                  {patient ? initials(patient.displayName) : "—"}
-                </span>
-              </div>
+              <Avatar
+                name={patient?.preferredName || patient?.displayName || "Patient"}
+                imageUrl={patient?.profilePhotoDataUrl}
+                size="xl"
+                accent="sage"
+              />
               <span
-                className={`absolute bottom-0.5 right-0.5 w-3.5 h-3.5 rounded-full border-2 border-white ${
+                className={`absolute bottom-1 right-1 h-4 w-4 rounded-full border-2 border-white ${
                   patient?.callingState === "active" ? "bg-green-400" : "bg-gray-300"
                 }`}
               />
             </div>
             <div className="flex-1 min-w-0">
-              <h1 className="text-xl font-semibold text-gray-900 mb-0.5">
+              <p className="eyebrow mb-2">Patient Snapshot</p>
+              <h2 className="text-2xl font-semibold text-slate-950 mb-1">
                 {patient?.displayName ?? "—"}
-              </h1>
-              <p className="text-base text-gray-400 mb-1.5">
+              </h2>
+              <p className="text-base text-slate-500 mb-2">
                 {[patient?.phoneE164, patient?.timezone].filter(Boolean).join(" · ") ||
                   "No contact info"}
               </p>
               {patient?.notes && (
-                <p className="text-base text-gray-500 italic">&ldquo;{patient.notes}&rdquo;</p>
+                <p className="max-w-2xl text-base italic text-slate-600">&ldquo;{patient.notes}&rdquo;</p>
               )}
             </div>
-            <div className="flex-shrink-0 flex flex-col items-end gap-2">
+            <div className="flex flex-shrink-0 flex-col gap-2 lg:items-end">
               <button
                 onClick={() => onNavigate("schedule-call")}
-                className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white text-base font-medium rounded-lg hover:bg-gray-700 transition-colors"
+                className="app-btn-primary"
               >
                 <PhoneOutgoing size={15} strokeWidth={2.25} />
                 Start Call
               </button>
+              <button
+                onClick={() => onNavigate("settings")}
+                className="app-btn-ghost"
+              >
+                <Settings2 size={15} strokeWidth={2} />
+                Care settings
+              </button>
               {latestCall && (
-                <p className="text-sm text-gray-400">
+                <p className="text-sm text-slate-500">
                   Last call: {formatCallTime(latestCall.startedAt ?? latestCall.requestedAt)}
                 </p>
               )}
@@ -178,7 +202,7 @@ export function Dashboard({ onNavigate, dashboard, isLoading, error, onRefresh }
           </div>
 
           {/* Last call */}
-          <div className="bg-white border border-gray-200 rounded-2xl p-5">
+          <div className="app-panel p-5">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <Clock size={15} className="text-gray-400" strokeWidth={1.75} />
@@ -215,7 +239,7 @@ export function Dashboard({ onNavigate, dashboard, isLoading, error, onRefresh }
           </div>
 
           {/* Stats */}
-          <div className="bg-white border border-gray-200 rounded-2xl p-5 grid grid-cols-3 divide-x divide-gray-100">
+          <div className="app-panel grid gap-4 p-5 md:grid-cols-3 md:divide-x md:divide-slate-100">
             {[
               {
                 label: "Recent calls",
@@ -241,18 +265,18 @@ export function Dashboard({ onNavigate, dashboard, isLoading, error, onRefresh }
                 sub: "outbound calls",
               },
             ].map((s, i) => (
-              <div key={s.label} className={i > 0 ? "pl-6" : "pr-6"}>
-                <p className="text-sm text-gray-400 mb-1">{s.label}</p>
-                <p className="text-2xl font-semibold text-gray-900 capitalize">{s.value}</p>
-                <p className="text-sm text-gray-400 mt-0.5">{s.sub}</p>
+              <div key={s.label} className={i > 0 ? "md:pl-6" : "md:pr-6"}>
+                <p className="text-sm text-slate-400 mb-1">{s.label}</p>
+                <p className="text-2xl font-semibold text-slate-950 capitalize">{s.value}</p>
+                <p className="text-sm text-slate-500 mt-0.5">{s.sub}</p>
               </div>
             ))}
           </div>
 
           {/* AI insight */}
           {latestAnalysis?.result.dashboard_summary && (
-            <div className="bg-white border border-gray-200 rounded-2xl p-5 flex items-center gap-4">
-              <div className="w-10 h-10 rounded-xl bg-gray-50 border border-gray-100 flex items-center justify-center flex-shrink-0">
+            <div className="app-panel flex items-center gap-4 p-5">
+              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl border border-sky-100 bg-sky-50">
                 <Sparkles size={16} className="text-gray-400" strokeWidth={1.75} />
               </div>
               <div className="flex-1 min-w-0">
@@ -272,9 +296,9 @@ export function Dashboard({ onNavigate, dashboard, isLoading, error, onRefresh }
         </div>
 
         {/* ── Right column (2/5) ── */}
-        <div className="col-span-2 flex flex-col gap-4">
+        <div className="flex flex-col gap-4 xl:col-span-2">
           {/* Next call */}
-          <div className="bg-white border border-gray-200 rounded-2xl p-5">
+          <div className="app-panel p-5">
             <div className="flex items-center gap-2 mb-4">
               <CalendarDays size={15} className="text-gray-400" strokeWidth={1.75} />
               <span className="text-base font-semibold text-gray-900">Next Recommended Call</span>
@@ -341,7 +365,7 @@ export function Dashboard({ onNavigate, dashboard, isLoading, error, onRefresh }
 
           {/* Memory profile */}
           {patient && (
-            <div className="bg-white border border-gray-200 rounded-2xl p-5">
+            <div className="app-panel p-5">
               <span className="text-base font-semibold text-gray-900 block mb-1">Memory Profile</span>
               <p className="text-sm text-gray-400 mb-4">
                 Used to personalise reminiscence calls for {patient.preferredName || patient.displayName}
@@ -445,7 +469,7 @@ export function Dashboard({ onNavigate, dashboard, isLoading, error, onRefresh }
             </div>
           )}
 
-          <div className="bg-white border border-gray-200 rounded-2xl p-5">
+          <div className="app-panel p-5">
             <div className="flex items-center gap-2 mb-4">
               <BookOpen size={15} className="text-gray-400" strokeWidth={1.75} />
               <span className="text-base font-semibold text-gray-900">Memory Bank</span>
@@ -478,7 +502,7 @@ export function Dashboard({ onNavigate, dashboard, isLoading, error, onRefresh }
             )}
           </div>
 
-          <div className="bg-white border border-gray-200 rounded-2xl p-5">
+          <div className="app-panel p-5">
             <div className="flex items-center gap-2 mb-4">
               <Users size={15} className="text-gray-400" strokeWidth={1.75} />
               <span className="text-base font-semibold text-gray-900">People Learned From Calls</span>
