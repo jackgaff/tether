@@ -22,11 +22,21 @@ interface FamilyMember {
 
 interface Props {
   caregiverId: string;
+  caregiverBootstrapError?: string | null;
+  canRetryCaregiverBootstrap?: boolean;
+  onRetryCaregiverBootstrap?: () => void;
   onCreated: (patient: Patient) => void;
   onCancel: () => void;
 }
 
-export function CreatePatient({ caregiverId, onCreated, onCancel }: Props) {
+export function CreatePatient({
+  caregiverId,
+  caregiverBootstrapError,
+  canRetryCaregiverBootstrap = false,
+  onRetryCaregiverBootstrap,
+  onCreated,
+  onCancel
+}: Props) {
   // Basic info
   const [displayName, setDisplayName] = useState("");
   const [preferredName, setPreferredName] = useState("");
@@ -73,7 +83,9 @@ export function CreatePatient({ caregiverId, onCreated, onCancel }: Props) {
       return;
     }
     if (!caregiverId) {
-      setError("The caregiver profile is still being prepared. Please wait a moment and try again.");
+      setError(
+        caregiverBootstrapError ?? "The caregiver profile is still being prepared. Please wait a moment and try again."
+      );
       return;
     }
     setIsSubmitting(true);
@@ -146,7 +158,19 @@ export function CreatePatient({ caregiverId, onCreated, onCancel }: Props) {
 
       {!caregiverId && (
         <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          Setting up the caregiver profile for this local demo. The patient form will work in a moment.
+          <p>
+            {caregiverBootstrapError ??
+              "Setting up the caregiver profile for this local demo. The patient form will work in a moment."}
+          </p>
+          {canRetryCaregiverBootstrap && onRetryCaregiverBootstrap && (
+            <button
+              type="button"
+              onClick={onRetryCaregiverBootstrap}
+              className="mt-2 font-medium text-amber-900 underline underline-offset-2"
+            >
+              Retry caregiver setup
+            </button>
+          )}
         </div>
       )}
 

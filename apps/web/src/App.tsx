@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Radio, UserPlus, LogOut } from "lucide-react";
 import { Sidebar } from "./components/Sidebar";
 import { Dashboard } from "./pages/Dashboard";
@@ -42,7 +42,7 @@ export default function App() {
   const [patientList, setPatientList] = useState<Patient[]>([]);
   const [patientListLoading, setPatientListLoading] = useState(false);
   const [caregiverBootstrapError, setCaregiverBootstrapError] = useState<string | null>(null);
-  const bootstrapAttemptedRef = useRef(false);
+  const [caregiverBootstrapState, setCaregiverBootstrapState] = useState<"idle" | "running" | "failed">("idle");
 
   // Dashboard data
   const [dashboard, setDashboard] = useState<DashboardSnapshot | null>(null);
@@ -66,11 +66,11 @@ export default function App() {
   }, [session]);
 
   useEffect(() => {
-    if (!session || caregiverId || patientListLoading || bootstrapAttemptedRef.current) {
+    if (!session || caregiverId || patientListLoading || caregiverBootstrapState !== "idle") {
       return;
     }
 
-    bootstrapAttemptedRef.current = true;
+    setCaregiverBootstrapState("running");
     setCaregiverBootstrapError(null);
 
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "America/New_York";
@@ -79,6 +79,7 @@ export default function App() {
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "") || "demo-admin";
+    const caregiverEmail = `${usernameSlug}@local.nova-echoes.test`;
 
     const caregiverInput = {
       displayName: session.username
@@ -87,18 +88,25 @@ export default function App() {
         .filter(Boolean)
         .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
         .join(" ") || "Demo Caregiver",
-      email: `${usernameSlug}@local.nova-echoes.test`,
+      email: caregiverEmail,
       phoneE164: "",
       timezone
     };
 
     listCaregivers()
       .then((caregivers) => {
-        if (caregivers.length > 0) {
-          setCaregiverId(caregivers[0].id);
+        const matchingCaregiver = caregivers.find(
+          (caregiver) => caregiver.email.trim().toLowerCase() === caregiverEmail
+        );
+        if (matchingCaregiver) {
+          setCaregiverId(matchingCaregiver.id);
           return null;
         }
         if (patientList.length > 0) {
+          setCaregiverBootstrapState("failed");
+          setCaregiverBootstrapError(
+            "Select an existing patient to load its caregiver profile for this demo."
+          );
           return null;
         }
         return createCaregiver(caregiverInput).then((caregiver) => {
@@ -107,10 +115,17 @@ export default function App() {
         });
       })
       .catch((err: any) => {
-        bootstrapAttemptedRef.current = false;
+        setCaregiverBootstrapState("failed");
         setCaregiverBootstrapError(err?.message ?? "Could not prepare the caregiver profile.");
       });
-  }, [session, caregiverId, patientListLoading, patientList.length, setCaregiverId]);
+  }, [session, caregiverId, patientListLoading, patientList.length, caregiverBootstrapState, setCaregiverId]);
+
+  const retryCaregiverBootstrap = useCallback(() => {
+    setCaregiverBootstrapError(null);
+    setCaregiverBootstrapState("idle");
+  }, []);
+
+  const canRetryCaregiverBootstrap = caregiverBootstrapState === "failed" && patientList.length === 0;
 
   const fetchDashboard = useCallback(async (pid: string) => {
     setIsDashboardLoading(true);
@@ -139,6 +154,8 @@ export default function App() {
     try {
       const s = await loginAdmin(loginForm);
       setSession(s);
+      setCaregiverBootstrapError(null);
+      setCaregiverBootstrapState("idle");
     } catch (err: any) {
       setLoginError(err.message ?? "Login failed");
     } finally {
@@ -213,6 +230,9 @@ export default function App() {
         <div className="min-h-screen bg-[#f7f8fa] overflow-y-auto">
           <CreatePatient
             caregiverId={caregiverId}
+            caregiverBootstrapError={caregiverBootstrapError}
+            canRetryCaregiverBootstrap={canRetryCaregiverBootstrap}
+            onRetryCaregiverBootstrap={retryCaregiverBootstrap}
             onCreated={(patient) => {
               setPatientList((prev) => [...prev, patient]);
               selectPatient(patient.id);
@@ -236,9 +256,18 @@ export default function App() {
           </p>
 
           {caregiverBootstrapError && (
-            <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              {caregiverBootstrapError}
-            </p>
+            <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              <p>{caregiverBootstrapError}</p>
+              {canRetryCaregiverBootstrap && (
+                <button
+                  type="button"
+                  onClick={retryCaregiverBootstrap}
+                  className="mt-2 text-xs font-medium text-red-700 underline underline-offset-2"
+                >
+                  Retry caregiver setup
+                </button>
+              )}
+            </div>
           )}
 
           {patientListLoading ? (
