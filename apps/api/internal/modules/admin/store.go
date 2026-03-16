@@ -306,27 +306,7 @@ func (s *PostgresStore) GetPatient(ctx context.Context, patientID string) (Patie
 }
 
 func (s *PostgresStore) ListPatients(ctx context.Context) ([]Patient, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		select
-			id,
-			primary_caregiver_id,
-			display_name,
-			preferred_name,
-			phone_e164,
-			timezone,
-			notes,
-			calling_state,
-			pause_reason,
-			paused_at,
-			routine_anchors,
-			favorite_topics,
-			calming_cues,
-			topics_to_avoid,
-			created_at,
-			updated_at
-		from patients
-		order by created_at asc
-	`)
+	rows, err := s.db.QueryContext(ctx, patientSelectBase+` order by p.created_at asc`)
 	if err != nil {
 		return nil, fmt.Errorf("list patients: %w", err)
 	}
@@ -1520,14 +1500,26 @@ func (s *PostgresStore) GetDashboard(ctx context.Context, patientID string) (Das
 		riskFlags = append(riskFlags, latestAnalysis.RiskFlags...)
 	}
 
+	patientPeople, err := s.ListPatientPeople(ctx, patient.ID)
+	if err != nil {
+		return DashboardSnapshot{}, err
+	}
+
+	recentMemoryBankEntries, err := s.listMemoryBankEntries(ctx, patient.ID, 5)
+	if err != nil {
+		return DashboardSnapshot{}, err
+	}
+
 	dashboard := DashboardSnapshot{
-		Patient:        patient,
-		Caregiver:      caregiver,
-		Consent:        consent,
-		LatestCall:     latestCall,
-		RecentCalls:    recentCalls,
-		LatestAnalysis: latestAnalysis,
-		RiskFlags:      riskFlags,
+		Patient:                 patient,
+		Caregiver:               caregiver,
+		Consent:                 consent,
+		LatestCall:              latestCall,
+		RecentCalls:             recentCalls,
+		LatestAnalysis:          latestAnalysis,
+		PatientPeople:           patientPeople,
+		RecentMemoryBankEntries: recentMemoryBankEntries,
+		RiskFlags:               riskFlags,
 	}
 	if planFound {
 		dashboard.ActiveNextCallPlan = &activePlan

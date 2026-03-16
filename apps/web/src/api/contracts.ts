@@ -74,6 +74,11 @@ export interface MemoryProfile {
   familyMembers: FamilyMember[];
   lifeEvents: LifeEvent[];
   reminiscenceNotes?: string;
+  significantPlaces: string[];
+  lifeChapters: string[];
+  favoriteMusic: string[];
+  favoriteShowsFilms: string[];
+  topicsToRevisit: string[];
 }
 
 export interface ConversationGuidance {
@@ -240,22 +245,57 @@ export interface ScreeningAnalysis {
   suggestedRescreenWindowBucket?: TimeframeBucket;
 }
 
+export interface ReminderNote {
+  title: string;
+  detail?: string;
+}
+
 export interface CheckInAnalysis {
-  reportedDayOverview?: string;
-  foodAndHydration?: string;
-  medicationMentions: string[];
-  moodSignals: string[];
-  routineAdherence?: string;
-  socialContactMentions: string[];
-  followUpRequestDetected: boolean;
+  orientationStatus: "oriented" | "mildly_confused" | "disoriented" | "unknown";
+  orientationNotes?: string;
+  mealsStatus: "reported" | "uncertain" | "not_recalled";
+  mealsDetail?: string;
+  fluidsStatus: "reported" | "uncertain" | "not_recalled";
+  fluidsDetail?: string;
+  activityDetail?: string;
+  socialContact: "yes" | "no" | "unknown";
+  socialContactDetail?: string;
+  remindersNoted: ReminderNote[];
+  reminderDeclined: boolean;
+  reminderDeclinedTopic?: string;
+  mood: "calm" | "withdrawn" | "distressed" | "elevated" | "unknown";
+  moodNotes?: string;
+  sleep: "good" | "poor" | "reversed" | "unknown";
+  sleepNotes?: string;
+  memoryFlags: string[];
+  deliriumWatch: boolean;
+  deliriumWatchNotes?: string;
+  deliriumPotentialTriggers: string[];
+  caregiverSummary?: string;
+}
+
+export interface MentionedPerson {
+  name: string;
+  relationship?: string;
+  context?: string;
 }
 
 export interface ReminiscenceAnalysis {
-  topicsDiscussed: string[];
-  peopleMentioned: string[];
-  positiveEngagementSignals: string[];
-  distressOrTriggerSignals: string[];
-  futureReminiscenceCandidates: string[];
+  topic?: string;
+  mentionedPeople: MentionedPerson[];
+  mentionedPlaces: string[];
+  mentionedMusic: string[];
+  mentionedShowsFilms: string[];
+  lifeChapters: string[];
+  summary?: string;
+  emotionalTone?: string;
+  respondedWellTo: string[];
+  anchorOffered: boolean;
+  anchorType?: "call" | "music" | "show_film" | "journal" | "none";
+  anchorAccepted: boolean;
+  anchorDetail?: string;
+  suggestedFollowUp?: string;
+  caregiverSummary?: string;
 }
 
 export interface AnalysisPayload {
@@ -271,7 +311,7 @@ export interface AnalysisPayload {
   reminiscence?: ReminiscenceAnalysis;
   dashboard_summary?: string;
   caregiver_summary?: string;
-  patient_state: {
+  patient_state?: {
     orientation: string;
     mood: string;
     engagement: string;
@@ -359,6 +399,44 @@ export interface NextCallPlan {
   updatedAt: string;
 }
 
+export interface PatientPerson {
+  id: string;
+  patientId: string;
+  name: string;
+  relationship?: string;
+  status: string;
+  relationshipQuality: string;
+  safeToSuggestCall: boolean;
+  firstMentionedAt: string;
+  firstMentionedCallRunId?: string;
+  lastMentionedAt: string;
+  lastMentionedCallRunId?: string;
+  context?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MemoryBankEntry {
+  id: string;
+  patientId: string;
+  sourceCallRunId: string;
+  sourceAnalysisResultId: string;
+  topic: string;
+  summary: string;
+  emotionalTone?: string;
+  respondedWellTo: string[];
+  anchorOffered: boolean;
+  anchorType: string;
+  anchorAccepted: boolean;
+  anchorDetail?: string;
+  suggestedFollowUp?: string;
+  occurredAt: string;
+  people: PatientPerson[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface DashboardSnapshot {
   patient: Patient;
   caregiver: Caregiver;
@@ -368,6 +446,8 @@ export interface DashboardSnapshot {
   recentCalls: CallRun[];
   latestAnalysis?: AnalysisRecord;
   activeNextCallPlan?: NextCallPlan;
+  patientPeople: PatientPerson[];
+  recentMemoryBankEntries: MemoryBankEntry[];
   riskFlags: RiskFlag[];
 }
 

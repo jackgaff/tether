@@ -1,4 +1,5 @@
 import {
+  BookOpen,
   PhoneOutgoing,
   Clock,
   CalendarDays,
@@ -33,6 +34,17 @@ function formatDuration(start?: string, end?: string) {
   const s = Math.floor(ms / 1000);
   const m = Math.floor(s / 60);
   return `${m}m ${s % 60}s`;
+}
+
+function formatDateTime(iso?: string, timezone?: string) {
+  if (!iso) return null;
+  return new Date(iso).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: timezone
+  });
 }
 
 function callTypeLabel(type: string) {
@@ -95,6 +107,9 @@ export function Dashboard({ onNavigate, dashboard, isLoading, error, onRefresh }
   const latestCall = dashboard?.latestCall;
   const latestAnalysis = dashboard?.latestAnalysis;
   const nextCall = dashboard?.activeNextCallPlan;
+  const screeningSchedule = dashboard?.screeningSchedule;
+  const patientPeople = dashboard?.patientPeople ?? [];
+  const recentMemoryBankEntries = dashboard?.recentMemoryBankEntries ?? [];
   const urgentFlags = (dashboard?.riskFlags ?? []).filter((f) => f.severity === "urgent");
   const callStatus = latestCall
     ? (statusConfig[latestCall.status] ?? { label: latestCall.status, bg: "bg-gray-100", text: "text-gray-500" })
@@ -304,6 +319,24 @@ export function Dashboard({ onNavigate, dashboard, isLoading, error, onRefresh }
             ) : (
               <p className="text-sm text-gray-400 italic">No upcoming call scheduled.</p>
             )}
+
+            {screeningSchedule && (
+              <div className="mt-4 rounded-xl border border-violet-100 bg-violet-50 px-4 py-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-violet-500">
+                  Recurring screening
+                </p>
+                <p className="mt-1 text-sm font-medium text-violet-900">
+                  {screeningSchedule.enabled
+                    ? `${screeningSchedule.cadence} on ${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][screeningSchedule.preferredWeekday]} at ${screeningSchedule.preferredLocalTime}`
+                    : "Paused"}
+                </p>
+                {screeningSchedule.enabled && screeningSchedule.nextDueAt && (
+                  <p className="mt-1 text-xs text-violet-700">
+                    Next window: {formatDateTime(screeningSchedule.nextDueAt, screeningSchedule.timezone)}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Memory profile */}
@@ -323,6 +356,56 @@ export function Dashboard({ onNavigate, dashboard, isLoading, error, onRefresh }
                     <div className="flex flex-wrap gap-1.5">
                       {patient.memoryProfile.likes.map((t) => (
                         <span key={t} className="text-xs bg-gray-50 border border-gray-100 rounded px-2 py-1 text-gray-600">{t}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {patient.memoryProfile.favoriteMusic.length > 0 && (
+                  <div>
+                    <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Favorite Music</span>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {patient.memoryProfile.favoriteMusic.map((item) => (
+                        <span key={item} className="text-xs bg-blue-50 border border-blue-100 rounded px-2 py-1 text-blue-700">{item}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {patient.memoryProfile.favoriteShowsFilms.length > 0 && (
+                  <div>
+                    <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Shows & Films</span>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {patient.memoryProfile.favoriteShowsFilms.map((item) => (
+                        <span key={item} className="text-xs bg-emerald-50 border border-emerald-100 rounded px-2 py-1 text-emerald-700">{item}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {patient.memoryProfile.significantPlaces.length > 0 && (
+                  <div>
+                    <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Significant Places</span>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {patient.memoryProfile.significantPlaces.map((item) => (
+                        <span key={item} className="text-xs bg-amber-50 border border-amber-100 rounded px-2 py-1 text-amber-700">{item}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {patient.memoryProfile.lifeChapters.length > 0 && (
+                  <div>
+                    <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Life Chapters</span>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {patient.memoryProfile.lifeChapters.map((item) => (
+                        <span key={item} className="text-xs bg-rose-50 border border-rose-100 rounded px-2 py-1 text-rose-700">{item}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {patient.memoryProfile.topicsToRevisit.length > 0 && (
+                  <div>
+                    <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Topics To Revisit</span>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {patient.memoryProfile.topicsToRevisit.map((item) => (
+                        <span key={item} className="text-xs bg-violet-50 border border-violet-100 rounded px-2 py-1 text-violet-700">{item}</span>
                       ))}
                     </div>
                   </div>
@@ -349,6 +432,11 @@ export function Dashboard({ onNavigate, dashboard, isLoading, error, onRefresh }
                   </p>
                 )}
                 {patient.memoryProfile.likes.length === 0 &&
+                  patient.memoryProfile.favoriteMusic.length === 0 &&
+                  patient.memoryProfile.favoriteShowsFilms.length === 0 &&
+                  patient.memoryProfile.significantPlaces.length === 0 &&
+                  patient.memoryProfile.lifeChapters.length === 0 &&
+                  patient.memoryProfile.topicsToRevisit.length === 0 &&
                   patient.memoryProfile.familyMembers.length === 0 &&
                   !patient.memoryProfile.reminiscenceNotes && (
                     <p className="text-sm text-gray-400 italic">No memory profile set up yet.</p>
@@ -356,6 +444,71 @@ export function Dashboard({ onNavigate, dashboard, isLoading, error, onRefresh }
               </div>
             </div>
           )}
+
+          <div className="bg-white border border-gray-200 rounded-2xl p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <BookOpen size={15} className="text-gray-400" strokeWidth={1.75} />
+              <span className="text-base font-semibold text-gray-900">Memory Bank</span>
+            </div>
+            {recentMemoryBankEntries.length > 0 ? (
+              <div className="space-y-3">
+                {recentMemoryBankEntries.map((entry) => (
+                  <div key={entry.id} className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">{entry.topic}</p>
+                        <p className="mt-1 text-sm text-gray-600 leading-relaxed">{entry.summary}</p>
+                      </div>
+                      <span className="text-xs text-gray-400 whitespace-nowrap">
+                        {formatDateTime(entry.occurredAt, patient?.timezone) ?? "Recorded"}
+                      </span>
+                    </div>
+                    {entry.respondedWellTo.length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-1.5">
+                        {entry.respondedWellTo.map((item) => (
+                          <span key={item} className="text-xs bg-white border border-gray-200 rounded px-2 py-1 text-gray-600">{item}</span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-400 italic">No memory-bank entries yet.</p>
+            )}
+          </div>
+
+          <div className="bg-white border border-gray-200 rounded-2xl p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <Users size={15} className="text-gray-400" strokeWidth={1.75} />
+              <span className="text-base font-semibold text-gray-900">People Learned From Calls</span>
+            </div>
+            {patientPeople.length > 0 ? (
+              <div className="space-y-3">
+                {patientPeople.map((person) => (
+                  <div key={person.id} className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">{person.name}</p>
+                        <p className="text-xs text-gray-500">
+                          {[person.relationship, person.context].filter(Boolean).join(" · ") || "Relationship pending review"}
+                        </p>
+                      </div>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                          person.safeToSuggestCall ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-700"
+                        }`}
+                      >
+                        {person.safeToSuggestCall ? "Safe to suggest" : "Needs review"}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-400 italic">No people have been extracted from calls yet.</p>
+            )}
+          </div>
         </div>
       </div>
     </div>

@@ -83,6 +83,9 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	if cfg.AnalysisWorkerEnabled {
 		go admin.NewAnalysisWorker(adminStore, adminAnalyzer).Run(backgroundCtx, cfg.AnalysisWorkerPollInterval)
 	}
+	if cfg.ScreeningSchedulerEnabled {
+		go admin.NewScreeningScheduler(adminStore).Run(backgroundCtx, cfg.ScreeningSchedulerPollInterval)
+	}
 
 	return &App{
 		Config: cfg,

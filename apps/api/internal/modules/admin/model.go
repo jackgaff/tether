@@ -521,15 +521,17 @@ type NextCallPlan struct {
 }
 
 type DashboardSnapshot struct {
-	Patient            Patient            `json:"patient"`
-	Caregiver          Caregiver          `json:"caregiver"`
-	Consent            ConsentState       `json:"consent"`
-	ScreeningSchedule  *ScreeningSchedule `json:"screeningSchedule,omitempty"`
-	LatestCall         *CallRun           `json:"latestCall,omitempty"`
-	RecentCalls        []CallRun          `json:"recentCalls"`
-	LatestAnalysis     *AnalysisRecord    `json:"latestAnalysis,omitempty"`
-	ActiveNextCallPlan *NextCallPlan      `json:"activeNextCallPlan,omitempty"`
-	RiskFlags          []RiskFlag         `json:"riskFlags"`
+	Patient                 Patient            `json:"patient"`
+	Caregiver               Caregiver          `json:"caregiver"`
+	Consent                 ConsentState       `json:"consent"`
+	ScreeningSchedule       *ScreeningSchedule `json:"screeningSchedule,omitempty"`
+	LatestCall              *CallRun           `json:"latestCall,omitempty"`
+	RecentCalls             []CallRun          `json:"recentCalls"`
+	LatestAnalysis          *AnalysisRecord    `json:"latestAnalysis,omitempty"`
+	ActiveNextCallPlan      *NextCallPlan      `json:"activeNextCallPlan,omitempty"`
+	PatientPeople           []PatientPerson    `json:"patientPeople"`
+	RecentMemoryBankEntries []MemoryBankEntry  `json:"recentMemoryBankEntries"`
+	RiskFlags               []RiskFlag         `json:"riskFlags"`
 }
 
 type PatientPerson struct {

@@ -158,9 +158,10 @@ export function getCall(callId: string): Promise<CallRunDetail> {
   return request<CallRunDetail>(`/api/v1/admin/calls/${encodeURIComponent(callId)}`);
 }
 
-export function enqueueCallAnalysis(callId: string): Promise<AnalysisJob> {
+export function enqueueCallAnalysis(callId: string, force = false): Promise<AnalysisJob> {
+  const query = force ? "?force=true" : "";
   return request<AnalysisJob>(
-    `/api/v1/admin/calls/${encodeURIComponent(callId)}/analyze`,
+    `/api/v1/admin/calls/${encodeURIComponent(callId)}/analyze${query}`,
     {
       method: "POST"
     }
@@ -173,9 +174,10 @@ export function getAnalysisJob(callId: string): Promise<AnalysisJob> {
   );
 }
 
-export async function analyzeCall(callId: string): Promise<AnalysisRecord> {
+export async function analyzeCall(callId: string, options?: { force?: boolean }): Promise<AnalysisRecord> {
   const normalizedCallId = encodeURIComponent(callId);
-  await request<AnalysisJob>(`/api/v1/admin/calls/${normalizedCallId}/analyze`, {
+  const query = options?.force ? "?force=true" : "";
+  await request<AnalysisJob>(`/api/v1/admin/calls/${normalizedCallId}/analyze${query}`, {
     method: "POST"
   });
 
