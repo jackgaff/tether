@@ -65,7 +65,7 @@ func LoadFrom(baseDir string) (Config, error) {
 	var parseErr error
 
 	cfg := Config{
-		AppName:                   getEnv("APP_NAME", "Tether"),
+		AppName:                   getEnv("APP_NAME", "Nova Echoes"),
 		AppEnv:                    getEnv("APP_ENV", "development"),
 		Port:                      getEnv("API_PORT", "8080"),
 		FrontendOrigin:            getEnv("FRONTEND_ORIGIN", "http://localhost:5173"),

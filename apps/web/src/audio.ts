@@ -2,6 +2,8 @@ export type MicrophoneStream = {
   stop: () => Promise<void>;
 };
 
+const AUDIO_PROCESSOR_BUFFER_SIZE = 2048;
+
 export async function startMicrophoneStream(
   socket: WebSocket,
   targetSampleRateHz: number
@@ -21,7 +23,7 @@ export async function startMicrophoneStream(
 
   const audioContext = new window.AudioContext();
   const source = audioContext.createMediaStreamSource(stream);
-  const processor = audioContext.createScriptProcessor(4096, 1, 1);
+  const processor = audioContext.createScriptProcessor(AUDIO_PROCESSOR_BUFFER_SIZE, 1, 1);
   const silentGain = audioContext.createGain();
   silentGain.gain.value = 0;
 

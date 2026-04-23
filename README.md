@@ -1,8 +1,11 @@
-# Tether
+# Nova Echoes
 
 Hackathon app for a caregiver-controlled voice companion that places short,
 structured check-in calls, captures transcripts, runs post-call analysis, and
 lets a caregiver review the next recommended call.
+
+The product-facing local defaults use the Nova Echoes name. Some internal
+package, compose, and cookie identifiers still use the original `tether` name.
 
 The repo is set up to help a small team move quickly without blurring concerns:
 
@@ -13,6 +16,25 @@ The repo is set up to help a small team move quickly without blurring concerns:
 - One shared root `.env.example`, plus optional `.env.local` overrides
 - Repo-level verification command for local work and CI
 - OpenAPI spec served by the API at `/openapi.yaml`
+
+## Current AI Capabilities
+
+- Browser voice calls use Amazon Bedrock's bidirectional streaming runtime with
+  Amazon Nova Sonic (`NOVA_VOICE_MODEL_ID`) for live speech-in/speech-out calls.
+  The browser sends mono PCM16 microphone chunks over WebSocket, and the API
+  forwards them into Bedrock while relaying audio, transcript, interruption, and
+  usage events back to the browser.
+- Call prompts are embedded Markdown templates synced into Postgres at startup.
+  The active call templates are check-in and reminiscence; both are rendered
+  with patient profile, people, memory-bank, routine, and safety context.
+- Post-call analysis uses Amazon Bedrock Converse with Nova Lite
+  (`NOVA_ANALYSIS_MODEL_ID`). The analysis worker builds a structured context
+  envelope from the completed call, transcript, patient, caregiver, recent
+  analyses, and call template, then validates and persists the JSON output.
+- Analysis results can create caregiver-facing summaries, risk flags,
+  reminders, next-call recommendations, people updates, and memory-bank entries.
+  JSON correctness is currently prompt-enforced with a repair pass plus backend
+  validation, not provider-native schema enforcement.
 
 ## Prerequisites
 
@@ -74,9 +96,13 @@ local-only. Shell environment variables still win over file values, and
 
 Use this when you want fast iteration with native processes on your machine.
 
-1. Start Postgres if you need a local database.
+1. Start Postgres if you need the API/database-backed flows.
    The repo defaults to host port `5433` so it does not collide with an
    existing local Postgres on `5432`.
+
+   ```bash
+   docker compose up -d db
+   ```
 
 2. Start the API:
 
@@ -173,15 +199,24 @@ Backend/runtime variables:
 - `APP_ENV`
 - `API_PORT`
 - `FRONTEND_ORIGIN`
+- `ALLOWED_FRONTEND_ORIGINS`
 - `DATABASE_URL`
+- `VOICE_LAB_EXPORT_DIR`
 - `AUTH_MODE`
 - `INTERNAL_API_KEY`
 - `AWS_REGION`
 - `BEDROCK_REGION`
 - `NOVA_VOICE_MODEL_ID`
 - `NOVA_ANALYSIS_MODEL_ID`
-- `ALLOWED_FRONTEND_ORIGINS`
-- `VOICE_LAB_EXPORT_DIR`
+- `NOVA_DEFAULT_VOICE_ID`
+- `NOVA_ALLOWED_VOICE_IDS`
+- `NOVA_INPUT_SAMPLE_RATE`
+- `NOVA_OUTPUT_SAMPLE_RATE`
+- `NOVA_ENDPOINTING_SENSITIVITY`
+- `ANALYSIS_WORKER_ENABLED`
+- `ANALYSIS_WORKER_POLL_INTERVAL`
+- `SCREENING_SCHEDULER_ENABLED`
+- `SCREENING_SCHEDULER_POLL_INTERVAL`
 - `ADMIN_USERNAME`
 - `ADMIN_PASSWORD`
 - `ADMIN_SESSION_SECRET`
@@ -224,7 +259,7 @@ That currently does:
 For the Postgres-backed API integration suite, run:
 
 ```bash
-TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5433/tether?sslmode=disable bun run test:api:integration
+TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5433/nova_echoes?sslmode=disable bun run test:api:integration
 ```
 
 CI lives at `.github/workflows/ci.yml` and runs on pushes to `main`, pull
@@ -247,11 +282,22 @@ Implemented routes:
 - `GET /api/v1/admin/session`
 - `POST /api/v1/admin/session/logout`
 - `POST /api/v1/admin/caregivers`
+- `GET /api/v1/admin/caregivers`
 - `GET /api/v1/admin/caregivers/{id}`
 - `PUT /api/v1/admin/caregivers/{id}`
+- `GET /api/v1/admin/patients`
 - `POST /api/v1/admin/patients`
 - `GET /api/v1/admin/patients/{id}`
 - `PUT /api/v1/admin/patients/{id}`
+- `GET /api/v1/admin/patients/{id}/people`
+- `POST /api/v1/admin/patients/{id}/people`
+- `PUT /api/v1/admin/patients/{id}/people/{personId}`
+- `GET /api/v1/admin/patients/{id}/memory-bank`
+- `POST /api/v1/admin/patients/{id}/memory-bank`
+- `PUT /api/v1/admin/patients/{id}/memory-bank/{entryId}`
+- `GET /api/v1/admin/patients/{id}/reminders`
+- `GET /api/v1/admin/patients/{id}/screening-schedule`
+- `PUT /api/v1/admin/patients/{id}/screening-schedule`
 - `GET /api/v1/admin/patients/{id}/consent`
 - `PUT /api/v1/admin/patients/{id}/consent`
 - `POST /api/v1/admin/patients/{id}/pause`
@@ -261,6 +307,7 @@ Implemented routes:
 - `POST /api/v1/admin/patients/{id}/calls`
 - `GET /api/v1/admin/calls/{id}`
 - `POST /api/v1/admin/calls/{id}/analyze`
+- `GET /api/v1/admin/calls/{id}/analysis-job`
 - `GET /api/v1/admin/calls/{id}/analysis`
 - `GET /api/v1/admin/patients/{id}/next-call`
 - `PUT /api/v1/admin/patients/{id}/next-call`
@@ -309,9 +356,14 @@ If you set `AUTH_MODE=api-key`, send:
 -H "X-API-Key: $INTERNAL_API_KEY"
 ```
 
-## Suggested Next Slices
+## Known Gaps / Suggested Next Slices
 
-- Add Nova Lite analysis routes and summary persistence on top of completed voice sessions
+- Add provider-native schema/tool enforcement for analysis JSON when Bedrock
+  exposes a stable fit for this flow.
+- Add automatic retry/backoff for failed analysis jobs; today failed jobs are
+  surfaced for manual retry.
+- Add first-class active screening prompt templates, or hide recurring
+  screening controls until that call type is fully maintained.
 - Add Amazon Connect outbound-call orchestration plus EventBridge contact ingestion
-- Layer in scheduling, caregiver workflows, and safety/escalation services
-- Add caregiver-facing summaries and escalation thresholds
+- Add production auth/secrets hardening, deployment config, and monitoring
+  before anything beyond local/demo use.

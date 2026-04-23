@@ -48,7 +48,7 @@ check-test:
 	bun run check:test
 
 test-api-integration:
-	TEST_DATABASE_URL=$${TEST_DATABASE_URL:-postgres://postgres:postgres@localhost:5433/tether?sslmode=disable} bun run test:api:integration
+	TEST_DATABASE_URL=$${TEST_DATABASE_URL:-postgres://postgres:postgres@localhost:5433/nova_echoes?sslmode=disable} bun run test:api:integration
 
 compose-config:
 	$(COMPOSE) config > /dev/null

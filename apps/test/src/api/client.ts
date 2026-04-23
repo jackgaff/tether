@@ -26,7 +26,7 @@ export async function fetchHealth(): Promise<HealthSnapshot> {
   return (
     payload.data ?? {
       status: "unknown",
-      service: "tether-api",
+      service: "nova-echoes-api",
       env: "development",
       authMode: "off",
       databaseURLConfigured: false,

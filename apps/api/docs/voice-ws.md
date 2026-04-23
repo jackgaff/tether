@@ -8,7 +8,7 @@ Rules:
 
 - The `token` is short-lived, one-time-use, and bound to the session ID.
 - The backend validates `Origin` against `ALLOWED_FRONTEND_ORIGINS`.
-- The browser should stream mic audio at natural cadence in small chunks, roughly 32 ms per frame. Avoid batching large 250-500 ms blobs because it adds latency and hurts interruption handling.
+- The browser should stream mic audio at natural cadence in small chunks, roughly 20-50 ms per frame depending on the device sample rate. Avoid batching large 250-500 ms blobs because it adds latency and hurts interruption handling.
 - Binary frames are raw mono `pcm_s16le` audio at the negotiated input or output sample rate.
 - JSON frames carry control messages and server events.
 
@@ -115,8 +115,8 @@ Server to client JSON:
   "stopReason": "END_TURN",
   "endedAt": "2026-03-08T16:56:12Z",
   "artifacts": {
-    "jsonPath": "/Users/jackg/hack/tether/apps/api/testdata/voice-lab/0195f0dc-0f1e-7ca3-a739-f8c6f95e0421.json",
-    "markdownPath": "/Users/jackg/hack/tether/apps/api/testdata/voice-lab/0195f0dc-0f1e-7ca3-a739-f8c6f95e0421.md"
+    "jsonPath": "/Users/jackg/hack/nova-echoes/apps/api/testdata/voice-lab/0195f0dc-0f1e-7ca3-a739-f8c6f95e0421.json",
+    "markdownPath": "/Users/jackg/hack/nova-echoes/apps/api/testdata/voice-lab/0195f0dc-0f1e-7ca3-a739-f8c6f95e0421.md"
   }
 }
 ```
