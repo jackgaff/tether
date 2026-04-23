@@ -35,7 +35,7 @@ func New(cfg config.Config, deps Dependencies) http.Handler {
 		respond.JSON(w, http.StatusOK, map[string]any{
 			"name":        cfg.AppName,
 			"environment": cfg.AppEnv,
-			"message":     "Nova Echoes API is ready for hackathon development.",
+			"message":     "Tether API is ready for hackathon development.",
 			"docsPath":    "/openapi.yaml",
 		}, nil)
 	}))

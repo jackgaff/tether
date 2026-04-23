@@ -32,7 +32,7 @@ export async function fetchHealth(): Promise<HealthSnapshot> {
   return (
     payload.data ?? {
       status: "unknown",
-      service: "nova-echoes-api",
+      service: "tether-api",
       env: "development",
       authMode: "off",
       databaseURLConfigured: false,

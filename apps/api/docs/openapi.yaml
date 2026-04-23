@@ -1,9 +1,9 @@
 openapi: 3.1.0
 info:
-  title: Nova Echoes API
+  title: Tether API
   version: 0.2.0
   description: >
-    Phase 1 API contract for Nova Echoes. The backend supports voice-driven
+    Phase 1 API contract for Tether. The backend supports voice-driven
     check-ins, caregiver-administered patient profiles, caregiver-requested and
     scheduled call runs,
     strict post-call analysis, and next-call recommendation approval.
@@ -877,7 +877,7 @@ components:
               example: ok
             service:
               type: string
-              example: Nova Echoes
+              example: Tether
             env:
               type: string
               example: development
@@ -907,7 +907,7 @@ components:
           properties:
             name:
               type: string
-              example: Nova Echoes
+              example: Tether
             environment:
               type: string
               example: development

@@ -1,11 +1,8 @@
-# Nova Echoes
+# Tether
 
 Hackathon app for a caregiver-controlled voice companion that places short,
 structured check-in calls, captures transcripts, runs post-call analysis, and
 lets a caregiver review the next recommended call.
-
-The product-facing local defaults use the Nova Echoes name. Some internal
-package, compose, and cookie identifiers still use the original `tether` name.
 
 The repo is set up to help a small team move quickly without blurring concerns:
 
@@ -259,7 +256,7 @@ That currently does:
 For the Postgres-backed API integration suite, run:
 
 ```bash
-TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5433/nova_echoes?sslmode=disable bun run test:api:integration
+TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5433/tether?sslmode=disable bun run test:api:integration
 ```
 
 CI lives at `.github/workflows/ci.yml` and runs on pushes to `main`, pull
